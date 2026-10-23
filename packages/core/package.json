@@ -1,0 +1,34 @@
+{
+  "name": "@invoice-primitives/core",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Exact, versioned invoicing primitives: calculation, lifecycle, settlement, presentation.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/conformance.ts"
+  },
+  "scripts": {
+    "gen:currencies": "node scripts/gen-currencies.mjs",
+    "corpus": "node scripts/fetch-corpus.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "mutate": "node scripts/mutate.mjs",
+    "bench": "node scripts/bench.ts"
+  },
+  "peerDependencies": {
+    "vitest": ">=3"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "fast-check": "^4.10.2",
+    "fast-xml-parser": "^5.11.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}
