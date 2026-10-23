@@ -15,15 +15,17 @@ export interface Balance {
 }
 
 /**
- * Where an issued document stands on a calendar date. Derived from its
- * settlements every time, never stored, so it cannot drift from them.
+ * Where an issued document stands at the end of `asOf`, counting the
+ * settlements dated on or before it; without `asOf`, every settlement. Derived
+ * each time, never stored, so it cannot drift from the settlements.
  */
-export function balance(doc: IssuedState, asOf: string): Balance {
+export function balance(doc: IssuedState, asOf?: string): Balance {
     const { scale } = doc.figures;
     const payable = dec(doc.figures.totals.payable);
-    const settled = Decimal.sum(doc.settlements.filter((s) => !s.reversed).map((s) => dec(s.amount)));
+    const counted = doc.settlements.filter((s) => !s.reversed && (asOf === undefined || s.date <= asOf));
+    const settled = Decimal.sum(counted.map((s) => dec(s.amount)));
     const outstanding = Decimal.ZERO.round(scale, "toward-zero").add(payable.sub(settled));
-    const late = daysBetween(doc.dueDate, asOf);
+    const late = asOf === undefined ? 0 : daysBetween(doc.dueDate, asOf);
     const open = outstanding.sign() > 0;
     return {
         payable: payable.toString(),

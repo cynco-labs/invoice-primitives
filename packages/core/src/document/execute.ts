@@ -15,8 +15,10 @@
  *     ▼
  *  discarded
  *
- * Commands that would repeat what already happened return no events, so a
- * retried request is harmless.
+ * A command that repeats what already happened (the same create, issue,
+ * settlement id with the same values, delivery id) returns no events, so a
+ * retried request is harmless. `create` is a repeat only while the draft is
+ * still what it created.
  */
 import { compute, minorUnits } from "../calc/compute.ts";
 import { verify } from "../calc/verify.ts";
@@ -69,9 +71,15 @@ export function issueDateOf(data: DraftData, ctx: Context): string {
  */
 export function numberingFor(data: DraftData, ctx: Context): { series: string; format(sequence: number): string } {
     const { prefix, digits } = (ctx.numbering ?? defaultNumbering)[data.kind];
+    if (!(Number.isInteger(digits) && digits >= 1 && digits <= 12)) {
+        throw new InvoiceError("invalid-argument", `numbering.${data.kind}.digits`, "a number has 1 to 12 digits");
+    }
     const series = prefix.replaceAll("{yyyy}", issueDateOf(data, ctx).slice(0, 4));
     return { series, format: (n) => `${series}${String(n).padStart(digits, "0")}` };
 }
+
+/** Ten years: longer terms are a data-entry mistake, not a contract. */
+const MAX_TERMS = 3650;
 
 export function execute(
     state: DocumentState | undefined,
@@ -83,10 +91,14 @@ export function execute(
 }
 
 export function decide(state: DocumentState | undefined, command: Command, ctx: Context): DocumentEvent[] {
+    if (Number.isNaN(Date.parse(ctx.now))) throw new Error(`context.now ${ctx.now} is not an ISO timestamp`);
     if (command.type === "create") {
         if (state) {
             if (state.id === command.id && canonical(state.data) === canonical(command.data)) return [];
             throw new InvoiceError("already-exists", "id", `document ${command.id} exists`);
+        }
+        if (command.data.kind === "credit-note") {
+            throw new InvoiceError("invalid-transition", "data.kind", "a credit note is created by crediting its invoice (creditInvoice)");
         }
         validateDraft(command.data, ctx);
         return [{ type: "created", id: command.id, data: command.data }];
@@ -124,18 +136,19 @@ export function decide(state: DocumentState | undefined, command: Command, ctx: 
         case "settle": {
             const doc = expect(state, ["issued"], command);
             const s = command.settlement;
+            const amount = money(s.amount, doc.figures.scale, "settlement.amount");
+            const settlement = { ...s, amount: amount.toString() };
             const existing = doc.settlements.find((x) => x.id === s.id);
             if (existing) {
-                if (canonical({ ...existing, reversed: undefined }) === canonical(s)) return [];
+                if (canonical({ ...existing, reversed: undefined }) === canonical(settlement)) return [];
                 throw new InvoiceError("duplicate-id", "settlement.id", `settlement ${s.id} exists with other values`);
             }
-            const amount = money(s.amount, doc.figures.scale, "settlement.amount");
             if (!isDate(s.date)) throw new InvoiceError("invalid-date", "settlement.date", `${s.date} is not a calendar date`);
-            const outstanding = dec(balance(doc, s.date).outstanding);
+            const outstanding = dec(balance(doc).outstanding);
             if (amount.cmp(outstanding) > 0) {
                 throw new InvoiceError("overpayment", "settlement.amount", `${s.amount} exceeds the outstanding ${outstanding}`);
             }
-            return [{ type: "settled", settlement: { ...s, amount: amount.toString() } }];
+            return [{ type: "settled", settlement }];
         }
 
         case "reverse-settlement": {
@@ -143,6 +156,9 @@ export function decide(state: DocumentState | undefined, command: Command, ctx: 
             const s = doc.settlements.find((x) => x.id === command.settlementId);
             if (!s) throw new InvoiceError("not-found", "settlementId", `no settlement ${command.settlementId}`);
             if (s.reversed) return [];
+            if (s.kind === "credit") {
+                throw new InvoiceError("invalid-transition", "settlementId", "a credit stays applied while its credit note stands; undoing a credit note is not built yet");
+            }
             return [{ type: "settlement-reversed", settlementId: s.id, reason: command.reason, at: ctx.now }];
         }
 
@@ -229,7 +245,9 @@ function issue(data: DraftData, number: string, ctx: Context): DocumentEvent {
     if (!number) throw new InvoiceError("missing-field", "number", "issuing needs a number from the backend's sequence");
     const { policy, pack } = ctx.registry.resolve(data.policy);
     const issueDate = issueDateOf(data, ctx);
+    if (!isDate(issueDate)) throw new InvoiceError("invalid-date", "data.issueDate", `${issueDate} is not a calendar date`);
     const dueDate = data.due === undefined ? issueDate : "date" in data.due ? data.due.date : addDays(issueDate, data.due.days);
+    if (!isDate(dueDate)) throw new InvoiceError("invalid-date", "data.due", `due date ${dueDate} is out of range`);
     if (daysBetween(issueDate, dueDate) < 0) throw new InvoiceError("invalid-date", "data.due", `due ${dueDate} is before issue ${issueDate}`);
 
     const known = pack.taxCategories;
@@ -239,7 +257,7 @@ function issue(data: DraftData, number: string, ctx: Context): DocumentEvent {
         ...(data.charges ?? []).flatMap((c, i) => c.taxes.map((t, j) => [t.category, `data.charges[${i}].taxes[${j}].category`] as const)),
     ];
     for (const [category, path] of taxes) {
-        if (!(category in known)) throw new InvoiceError("invalid-tax", path, `${pack.id} has no tax category ${category}`);
+        if (!Object.hasOwn(known, category)) throw new InvoiceError("invalid-tax", path, `${pack.id} has no tax category ${category}`);
     }
 
     let computed;
@@ -251,6 +269,9 @@ function issue(data: DraftData, number: string, ctx: Context): DocumentEvent {
     const violations = verify(computed);
     if (violations.length) {
         throw new InvoiceError("verification-failed", "", violations.map((v) => `${v.rule}: ${v.message}`).join("; "));
+    }
+    if (computed.totals.payable.sign() < 0) {
+        throw new InvoiceError("unsupported", "data.lines", "an invoice with a negative total; issue a credit note instead");
     }
     const figures = toFigures(computed);
     const failed = pack.rules.filter((r) => !r.check({ data, figures }));
@@ -271,8 +292,8 @@ function validateDraft(data: DraftData, ctx: Context): void {
     if (data.due && "date" in data.due && !isDate(data.due.date)) {
         throw new InvoiceError("invalid-date", "data.due.date", `${data.due.date} is not a calendar date`);
     }
-    if (data.due && "days" in data.due && !(Number.isInteger(data.due.days) && data.due.days >= 0)) {
-        throw new InvoiceError("invalid-date", "data.due.days", "payment terms are a whole number of days");
+    if (data.due && "days" in data.due && !(Number.isInteger(data.due.days) && data.due.days >= 0 && data.due.days <= MAX_TERMS)) {
+        throw new InvoiceError("invalid-date", "data.due.days", `payment terms are a whole number of days, at most ${MAX_TERMS}`);
     }
     if (data.kind === "credit-note" && !data.corrects) {
         throw new InvoiceError("missing-field", "data.corrects", "a credit note names the invoice it corrects");

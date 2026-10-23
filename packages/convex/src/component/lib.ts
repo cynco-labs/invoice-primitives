@@ -14,6 +14,8 @@
  */
 import {
     bundledPacks,
+    checkPage,
+    checkSettings,
     createRegistry,
     creditInvoice,
     creditNoteData,
@@ -24,7 +26,6 @@ import {
     type Context,
     type DocumentEvent,
     type DocumentState,
-    type Numbering,
 } from "@invoice-primitives/core";
 import { ConvexError, v } from "convex/values";
 import type { Doc } from "./_generated/dataModel.ts";
@@ -36,15 +37,13 @@ import {
     vDocumentState,
     vDraftData,
     vNewSettlement,
-    vNumbering,
+    vSettings,
     vStoredEvent,
     asValue,
 } from "./validators.ts";
 
 const registry = createRegistry(bundledPacks);
 
-/** The largest page `events` returns. */
-export const MAX_EVENTS = 1000;
 
 /** What a refusal carries across the component boundary: core's `InvoiceError`, as data. */
 export type Refusal = { code: string; path: string; detail: string };
@@ -74,16 +73,21 @@ function load(ctx: QueryCtx, tenant: string, documentId: string): Promise<Doc<"d
         .unique();
 }
 
+function settingsOf(ctx: QueryCtx, tenant: string): Promise<Doc<"settings"> | null> {
+    return ctx.db.query("settings").withIndex("by_tenant", (q) => q.eq("tenant", tenant)).unique();
+}
+
 /** One mutation's view of a tenant's books: what `memory.ts` keeps in maps, here read and written through indexes. */
-function books(ctx: MutationCtx, { tenant, timeZone, numbering }: Scope) {
+async function books(ctx: MutationCtx, tenant: string) {
     checkTenant(tenant);
-    try {
-        new Intl.DateTimeFormat("en", { timeZone });
-    } catch {
-        refuse("invalid-argument", "timeZone", `${timeZone} is not an IANA time zone`);
-    }
+    const settings = await settingsOf(ctx, tenant);
     // Date is fixed for the whole mutation in Convex, so every event in it shares one instant.
-    const context: Context = { now: new Date().toISOString(), timeZone, registry, ...(numbering && { numbering }) };
+    const context: Context = {
+        now: new Date().toISOString(),
+        timeZone: settings?.timeZone ?? "UTC",
+        registry,
+        ...(settings?.numbering && { numbering: settings.numbering }),
+    };
     let head: number | undefined;
 
     /**
@@ -128,6 +132,13 @@ function books(ctx: MutationCtx, { tenant, timeZone, numbering }: Scope) {
                 state: asValue.state(state),
                 ...((state.status === "issued" || state.status === "void") && { number: state.number }),
             };
+            if (fields.number !== undefined && fields.number !== row?.number) {
+                const holder = await ctx.db
+                    .query("documents")
+                    .withIndex("by_tenant_and_number", (q) => q.eq("tenant", tenant).eq("number", fields.number))
+                    .first();
+                if (holder) throw new InvoiceError("duplicate-number", "number", `number ${fields.number} is taken`);
+            }
             if (row) await ctx.db.replace("documents", row._id, fields);
             else await ctx.db.insert("documents", fields);
             for (const [i, event] of events.entries()) {
@@ -144,13 +155,13 @@ function books(ctx: MutationCtx, { tenant, timeZone, numbering }: Scope) {
     };
 }
 
-const scope = { tenant: v.string(), timeZone: v.string(), numbering: v.optional(vNumbering) };
-type Scope = { tenant: string; timeZone: string; numbering?: Numbering };
+const scope = { tenant: v.string() };
+type Scope = { tenant: string };
 
 /** Runs a command that needs no number: load → execute → save. */
 function run(ctx: MutationCtx, scope: Scope, id: string, command: Command) {
     return refusals(async () => {
-        const b = books(ctx, scope);
+        const b = await books(ctx, scope.tenant);
         const row = await b.load(id);
         const { state, events } = execute(row?.state, command, b.context);
         await b.save(row, state, events);
@@ -158,6 +169,24 @@ function run(ctx: MutationCtx, scope: Scope, id: string, command: Command) {
         return asValue.state(state);
     });
 }
+
+/** Replaces the given settings, keeping the others. */
+export const configure = mutation({
+    args: { tenant: v.string(), settings: vSettings },
+    returns: v.null(),
+    handler: (ctx, { tenant, settings }) =>
+        refusals(async () => {
+            checkTenant(tenant);
+            checkSettings(settings);
+            const row = await settingsOf(ctx, tenant);
+            const timeZone = settings.timeZone ?? row?.timeZone;
+            const numbering = settings.numbering ?? row?.numbering;
+            const next = { tenant, ...(timeZone !== undefined && { timeZone }), ...(numbering !== undefined && { numbering }) };
+            if (row) await ctx.db.replace("settings", row._id, next);
+            else await ctx.db.insert("settings", next);
+            return null;
+        }),
+});
 
 export const create = mutation({
     args: { ...scope, id: v.string(), data: vDraftData },
@@ -183,7 +212,7 @@ export const issue = mutation({
     returns: vDocumentState,
     handler: (ctx, a) =>
         refusals(async () => {
-            const b = books(ctx, a);
+            const b = await books(ctx, a.tenant);
             const row = await b.load(a.id);
             const plan = row?.state.status === "draft" ? numberingFor(row.state.data, b.context) : undefined;
             const number = plan ? plan.format(await b.next(plan.series)) : "";
@@ -236,7 +265,7 @@ export const credit = mutation({
     returns: v.object({ invoice: vDocumentState, note: vDocumentState }),
     handler: (ctx, a) =>
         refusals(async () => {
-            const b = books(ctx, a);
+            const b = await books(ctx, a.tenant);
             const invoice = await b.load(a.invoiceId);
             const existing = await b.load(a.note.id);
             const invoiceState = invoice?.state;
@@ -274,15 +303,13 @@ export const getByNumber = query({
 export const events = query({
     args: { tenant: v.string(), after: v.optional(v.number()), limit: v.optional(v.number()) },
     returns: v.array(vStoredEvent),
-    handler: async (ctx, { tenant, after = 0, limit = 100 }) => {
-        if (!Number.isSafeInteger(after) || after < 0) refuse("invalid-argument", "after", "a log position is a whole number from 0");
-        if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_EVENTS) {
-            refuse("invalid-argument", "limit", `a page is 1 to ${MAX_EVENTS} events`);
-        }
-        const rows = await ctx.db
-            .query("events")
-            .withIndex("by_tenant_and_position", (q) => q.eq("tenant", tenant).gt("position", after))
-            .take(limit);
-        return rows.map(({ position, documentId, version, at, event }) => ({ position, documentId, version, at, event }));
-    },
+    handler: (ctx, args) =>
+        refusals(async () => {
+            const { after, limit } = checkPage(args.after, args.limit);
+            const rows = await ctx.db
+                .query("events")
+                .withIndex("by_tenant_and_position", (q) => q.eq("tenant", args.tenant).gt("position", after))
+                .take(limit);
+            return rows.map(({ position, documentId, version, at, event }) => ({ position, documentId, version, at, event }));
+        }),
 });

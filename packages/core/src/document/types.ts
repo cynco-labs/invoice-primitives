@@ -59,8 +59,10 @@ export interface DraftData {
     orderReference?: string;
     /** BT-22. */
     note?: string;
-    /** BT-25: for a credit note, the id of the invoice it corrects. */
+    /** For a credit note, the id of the invoice it corrects. */
     corrects?: string;
+    /** BT-25: that invoice's number, as printed on the note. */
+    correctsNumber?: string;
 }
 
 /** The figures fixed at issue: what the document legally says, as strings. */
@@ -94,7 +96,7 @@ export interface Figures {
 
 /** Money that settled part of an issued document: a payment, a credit note, a write-off. */
 export interface Settlement {
-    /** Caller-chosen and unique per document. Repeating a settle with the same id is a no-op. */
+    /** Caller-chosen and unique per document. Repeating a settle with the same id and values is a no-op. */
     id: string;
     kind: "payment" | "credit" | "write-off";
     /** Positive, in the document's currency. */

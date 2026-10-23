@@ -155,7 +155,10 @@ export function booksConformance(name: string, makeBooks: () => Promise<Books> |
             await refused("not-found", books.issue("nope"));
             await refused("unknown-policy", books.create("a", sampleInvoice({ policy: "xx@9" })));
             await refused("unknown-currency", books.create("a", sampleInvoice({ currency: "ABC" })));
-            await refused("missing-field", books.create("cn", sampleInvoice({ kind: "credit-note" })));
+            await refused("invalid-transition", books.create("cn", sampleInvoice({ kind: "credit-note", corrects: "a" })));
+            await refused("invalid-date", books.create("a", sampleInvoice({ due: { days: 1e300 } })));
+            await books.create("odd", sampleInvoice({ lines: [{ id: "1", name: "x", quantity: "1", price: "1.00", taxes: [{ category: "constructor", rate: "5" }] }] }));
+            await refused("invalid-tax", books.issue("odd"));
         });
 
         it("concurrent payments are serialised: all fit, or exactly the excess is refused", async () => {
@@ -176,6 +179,86 @@ export function booksConformance(name: string, makeBooks: () => Promise<Books> |
             const docs = await Promise.all(ids.map((id) => books.issue(id)));
             const numbers = docs.map((d) => issued(d).number).sort();
             expect(numbers).toEqual(ids.map((_, i) => `INV-2026-${String(i + 1).padStart(5, "0")}`));
+        });
+
+        it("a credit stays applied: it cannot be reversed alone, and its invoice cannot be voided", async () => {
+            const books = await makeBooks();
+            await books.create("inv", sampleInvoice());
+            await books.issue("inv");
+            const input = { issueDate: "2026-10-30", lines: [{ id: "1", name: "x", quantity: "1", price: "10.00", taxes: [{ category: "E" }] }] };
+            await books.credit("inv", { id: "cn", input });
+            await refused("invalid-transition", books.reverseSettlement("inv", "credit:cn", "oops"));
+            await refused("has-settlements", books.void("inv", "oops"));
+            await refused("invalid-date", books.credit("inv", { id: "cn-early", input: { ...input, issueDate: "2026-10-01" } }));
+        });
+
+        it("a retried payment is a repeat whatever way its amount is written", async () => {
+            const books = await makeBooks();
+            await books.create("a", sampleInvoice());
+            await books.issue("a");
+            const pay = { id: "p1", kind: "payment" as const, amount: "100", date: "2026-10-24" };
+            await books.settle("a", pay);
+            await books.settle("a", pay);
+            const again = issued(await books.settle("a", { ...pay, amount: "100.00" }));
+            expect(again.settlements.map((s) => s.amount)).toEqual(["100.00"]);
+        });
+
+        it("a balance on a date counts only what was settled by then", async () => {
+            const books = await makeBooks();
+            await books.create("a", sampleInvoice());
+            await books.issue("a");
+            await books.settle("a", { id: "p1", kind: "payment", amount: "1771.47", date: "2027-01-05" });
+            const doc = issued((await books.get("a"))!);
+            expect(balance(doc, "2026-12-31")).toMatchObject({ status: "open", overdue: true });
+            expect(balance(doc, "2027-01-05").status).toBe("settled");
+            expect(balance(doc).status).toBe("settled");
+        });
+
+        it("a refused command leaves no trace in the log", async () => {
+            const books = await makeBooks();
+            await books.create("a", sampleInvoice());
+            await books.issue("a");
+            const before = await books.events(0, 1000);
+            await refused("overpayment", books.settle("a", { id: "p1", kind: "payment", amount: "9999.00", date: "2026-10-24" }));
+            await refused("invalid-transition", books.update("a", sampleInvoice()));
+            expect(await books.events(0, 1000)).toEqual(before);
+            expect((await books.get("a"))!.version).toBe(before.at(-1)!.version);
+        });
+
+        it("pages through the log by position", async () => {
+            const books = await makeBooks();
+            for (const id of ["a", "b", "c"]) await books.create(id, sampleInvoice());
+            await books.issue("a");
+            expect((await books.events(1, 2)).map((e) => e.position)).toEqual([2, 3]);
+            expect((await books.events(4)).map((e) => e.position)).toEqual([]);
+            await refused("invalid-argument", books.events(-1));
+            await refused("invalid-argument", books.events(0, 0));
+            await refused("invalid-argument", books.events(0, 100_000));
+        });
+
+        it("keeps tenants apart: their own documents, numbers and log", async () => {
+            const one = await makeBooks();
+            const two = await makeBooks();
+            await one.create("a", sampleInvoice());
+            await two.create("a", sampleInvoice({ note: "tenant two" }));
+            expect([issued(await one.issue("a")).number, issued(await two.issue("a")).number]).toEqual(["INV-2026-00001", "INV-2026-00001"]);
+            expect((await one.get("a"))!.data.note).toBeUndefined();
+            expect((await two.events(0, 1000)).every((e) => e.documentId === "a")).toBe(true);
+            expect(await one.events(0, 1000)).toHaveLength(2);
+        });
+
+        it("takes its numbering from settings, and never issues a number twice", async () => {
+            const books = await makeBooks();
+            await refused("invalid-argument", books.configure({ timeZone: "Mars/Olympus" }));
+            await refused("invalid-argument", books.configure({ numbering: { invoice: { prefix: "X-", digits: 0 }, "credit-note": { prefix: "C-", digits: 2 } } }));
+            await books.configure({ numbering: { invoice: { prefix: "KK/{yyyy}/", digits: 2 }, "credit-note": { prefix: "KK/CN/", digits: 2 } } });
+            for (const id of ["a", "b", "c"]) await books.create(id, sampleInvoice());
+            expect(issued(await books.issue("a")).number).toBe("KK/2026/01");
+            // A new prefix whose first number reads like an old one: refused, and it draws no number.
+            await books.configure({ numbering: { invoice: { prefix: "KK/2026/0", digits: 1 }, "credit-note": { prefix: "KK/CN/", digits: 2 } } });
+            await refused("duplicate-number", books.issue("b"));
+            await books.configure({ numbering: { invoice: { prefix: "KK/{yyyy}/", digits: 2 }, "credit-note": { prefix: "KK/CN/", digits: 2 } } });
+            expect(issued(await books.issue("c")).number).toBe("KK/2026/02");
         });
 
         it("replaying the event log rebuilds every document exactly", async () => {

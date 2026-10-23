@@ -82,6 +82,7 @@ export const vDraftData = v.object({
     seller: vParty,
     buyer: vParty,
     corrects: optionalString,
+    correctsNumber: optionalString,
 });
 
 export const vFigures = v.object({
@@ -200,3 +201,4 @@ export const asValue = {
 
 const vNumberFormat = v.object({ prefix: v.string(), digits: v.number() });
 export const vNumbering = v.object({ invoice: vNumberFormat, "credit-note": vNumberFormat });
+export const vSettings = v.object({ timeZone: optionalString, numbering: v.optional(vNumbering) });

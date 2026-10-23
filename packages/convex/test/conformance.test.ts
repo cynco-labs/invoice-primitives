@@ -19,12 +19,15 @@ const modules = import.meta.glob("../src/component/**/*.ts");
 // still locates an app's modules by their `_generated` directory, so give it an empty one.
 const app = { "./_generated/server.ts": () => Promise.resolve({}) };
 const t = convexTest(undefined, app);
-const invoicing = new Invoicing(t.registerComponent<ComponentApi>("invoicing", schema, modules), { timeZone: "Asia/Kuala_Lumpur" });
+const invoicing = new Invoicing(t.registerComponent<ComponentApi>("invoicing", schema, modules));
 
 let tenants = 0;
 
 function books(tenant: string): Books {
     return {
+        configure: async (settings) => {
+            await t.run((ctx) => invoicing.configure(ctx, tenant, settings));
+        },
         create: (id, data) => t.run((ctx) => invoicing.create(ctx, tenant, id, data)),
         update: (id, data) => t.run((ctx) => invoicing.update(ctx, tenant, id, data)),
         discard: (id) => t.run((ctx) => invoicing.discard(ctx, tenant, id)),
@@ -41,7 +44,11 @@ function books(tenant: string): Books {
     };
 }
 
-booksConformance("convex", () => books(`tenant-${++tenants}`));
+booksConformance("convex", async () => {
+    const b = books(`tenant-${++tenants}`);
+    await b.configure({ timeZone: "Asia/Kuala_Lumpur" });
+    return b;
+});
 
 describe("convex: tenants and the component boundary", () => {
     it("keeps each tenant's documents, numbers and log apart", async () => {
@@ -76,8 +83,7 @@ describe("convex: tenants and the component boundary", () => {
     it("refuses an empty tenant, a bad time zone and an unbounded page", async () => {
         const codeOf = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => refusalOf(e)?.path);
         expect(await codeOf(books("").create("a", sampleInvoice()))).toBe("tenant");
-        const elsewhere = new Invoicing(invoicing.component, { timeZone: "Mars/Olympus" });
-        expect(await codeOf(t.run((ctx) => elsewhere.create(ctx, "tz", "a", sampleInvoice())))).toBe("timeZone");
+        expect(await codeOf(books("tz").configure({ timeZone: "Mars/Olympus" }))).toBe("timeZone");
         expect(await codeOf(books("paging").events(0, 1001))).toBe("limit");
         expect(await codeOf(books("paging").events(-1))).toBe("after");
     });

@@ -46,14 +46,38 @@ const MUTANTS = [
     {
         name: "reversed settlements still count as paid",
         file: "src/document/balance.ts",
-        from: `doc.settlements.filter((s) => !s.reversed)`,
-        to: `doc.settlements.filter(() => true)`,
+        from: `doc.settlements.filter((s) => !s.reversed && `,
+        to: `doc.settlements.filter((s) => true && `,
     },
     {
         name: "a retried payment is applied twice",
         file: "src/document/execute.ts",
         from: `const existing = doc.settlements.find((x) => x.id === s.id);`,
         to: `const existing = undefined as Settlement | undefined;`,
+    },
+    {
+        name: "a credit can be reversed while its note stands",
+        file: "src/document/execute.ts",
+        from: `if (s.kind === "credit") {`,
+        to: `if (false) {`,
+    },
+    {
+        name: "a credit note can be created around its invoice",
+        file: "src/document/execute.ts",
+        from: `if (command.data.kind === "credit-note") {`,
+        to: `if (false) {`,
+    },
+    {
+        name: "a retried payment is compared before its amount is normalised",
+        file: "src/document/execute.ts",
+        from: `canonical({ ...existing, reversed: undefined }) === canonical(settlement)`,
+        to: `canonical({ ...existing, reversed: undefined }) === canonical(s)`,
+    },
+    {
+        name: "a balance counts payments dated after it",
+        file: "src/document/balance.ts",
+        from: `(asOf === undefined || s.date <= asOf)`,
+        to: `true`,
     },
     {
         name: "half-even where half away from zero is required",

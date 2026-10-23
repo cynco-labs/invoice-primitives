@@ -2,14 +2,15 @@
  * The app-side client: core's `Books` methods, each taking the calling
  * function's `ctx` and the tenant whose books it touches.
  *
- *   const invoicing = new Invoicing(components.invoicing, { timeZone: "Asia/Kuala_Lumpur" });
+ *   const invoicing = new Invoicing(components.invoicing);
+ *   await invoicing.configure(ctx, tenant, { timeZone: "Asia/Kuala_Lumpur" });
  *   await invoicing.issue(ctx, tenant, "inv_1");
  *
  * Each method runs one component mutation: one transaction. A refusal arrives
  * as a `ConvexError` whose `data` is `{ code, path, detail }` from core's
  * `InvoiceError`; use `refusalOf` to read it.
  */
-import type { CreditNoteInput, DocumentState, DraftData, Settlement, StoredEvent, Numbering } from "@invoice-primitives/core";
+import type { CreditNoteInput, DocumentState, DraftData, Settings, Settlement, StoredEvent } from "@invoice-primitives/core";
 import type { GenericDataModel, GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { ConvexError } from "convex/values";
 import type { ComponentApi } from "../component/_generated/component.ts";
@@ -22,26 +23,20 @@ export type { Refusal } from "../component/lib.ts";
 type RunQueryCtx = { runQuery: GenericQueryCtx<GenericDataModel>["runQuery"] };
 type RunMutationCtx = { runMutation: GenericMutationCtx<GenericDataModel>["runMutation"] };
 
-export interface InvoicingOptions {
-    /** The seller's IANA time zone. A document issued without an issue date is dated by the seller's calendar. */
-    timeZone: string;
-    /** How document numbers read. Defaults to INV-{yyyy}-00001 and CN-{yyyy}-00001. */
-    numbering?: Numbering;
-}
-
 export class Invoicing {
     readonly component: ComponentApi;
-    readonly timeZone: string;
-    readonly numbering: Numbering | undefined;
 
-    constructor(component: ComponentApi, options: InvoicingOptions) {
+    constructor(component: ComponentApi) {
         this.component = component;
-        this.timeZone = options.timeZone;
-        this.numbering = options.numbering;
     }
 
     private scope(tenant: string) {
-        return { tenant, timeZone: this.timeZone, ...(this.numbering && { numbering: this.numbering }) };
+        return { tenant };
+    }
+
+    /** The tenant's time zone and numbering (core's `Settings`). Replaces the given ones, keeping the others. */
+    configure(ctx: RunMutationCtx, tenant: string, settings: Settings): Promise<null> {
+        return ctx.runMutation(this.component.lib.configure, { tenant, settings });
     }
 
     create(ctx: RunMutationCtx, tenant: string, id: string, data: DraftData): Promise<DocumentState> {

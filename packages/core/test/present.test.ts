@@ -44,4 +44,43 @@ describe("present", () => {
         expect(html).not.toContain("<script>");
         expect(html).toContain("&#60;script&#62;");
     });
+
+    it("speaks any language: every printed word is a label", async () => {
+        const malay = {
+            invoice: "Invois",
+            subtotal: "Jumlah kecil",
+            tax: "Cukai",
+            total: "Jumlah",
+            paid: "Dibayar",
+            amountDue: "Baki perlu dibayar",
+            statusPartlyPaid: "Dibayar sebahagian",
+        };
+        const view = present(await issuedSample(), { locale: "ms-MY", asOf: "2026-10-25", labels: malay });
+        expect([view.title, view.status, view.totals.map((t) => t.label)]).toEqual([
+            "Invois",
+            "Dibayar sebahagian",
+            ["Jumlah kecil", "Cukai", "Jumlah", "Dibayar", "Baki perlu dibayar"],
+        ]);
+    });
+
+    it("shows a credit note as applied, with the number of the invoice it corrects", async () => {
+        const books = createMemoryBooks({ registry: createRegistry(bundledPacks), timeZone: "Asia/Kuala_Lumpur" });
+        await books.create("inv", sampleInvoice());
+        await books.issue("inv");
+        const { note } = await books.credit("inv", { id: "cn", input: { issueDate: "2026-10-30", lines: [{ id: "1", name: "x", quantity: "1", price: "10.00", taxes: [{ category: "E" }] }] } });
+        const view = present(note as IssuedState, { locale: "en-MY", asOf: "2026-10-30" });
+        expect([view.title, view.status, view.corrects]).toEqual(["Credit note", "Applied", "INV-2026-00001"]);
+        expect(view.totals.map((t) => t.label)).toEqual(["Subtotal", "Tax", "Total"]);
+    });
+
+    it("brands the HTML and refuses unsafe brand values", async () => {
+        const view = present(await issuedSample(), { locale: "en-MY", asOf: "2026-10-25" });
+        const html = renderHtml(view, { logoUrl: "https://kopi.example/logo.png", accent: "#0f766e", footer: "Maybank 5140 1234 5678" });
+        expect(html).toContain('<img src="https://kopi.example/logo.png"');
+        expect(html).toContain("color:#0f766e");
+        expect(html).toContain("Maybank 5140 1234 5678");
+        const hostile = renderHtml(view, { logoUrl: "javascript:alert(1)", accent: "red;background:url(x)" });
+        expect(hostile).not.toContain("javascript:");
+        expect(hostile).not.toContain("url(x)");
+    });
 });

@@ -4,29 +4,42 @@
  *
  *   in one transaction: load the state → (allocate a number) → execute → save state and events
  */
-import type { Books, StoredEvent } from "./books.ts";
+import { checkPage, checkSettings, type Books, type Settings, type StoredEvent } from "./books.ts";
 import { creditInvoice, creditNoteData } from "./document/credit.ts";
 import { execute, numberingFor, type Context } from "./document/execute.ts";
 import type { Command, DocumentEvent, DocumentState } from "./document/types.ts";
 import { InvoiceError } from "./errors.ts";
 
-export type BooksConfig = Omit<Context, "now"> & { now?: () => string };
+export interface BooksConfig extends Settings {
+    registry: Context["registry"];
+    /** The clock; tests pin it. */
+    now?: () => string;
+}
 
 export function createMemoryBooks(config: BooksConfig): Books {
     let docs = new Map<string, DocumentState>();
     let sequences = new Map<string, number>();
+    let numbers = new Map<string, string>();
     const log: StoredEvent[] = [];
+    checkSettings(config);
+    let settings: Settings = { timeZone: config.timeZone ?? "UTC", ...(config.numbering && { numbering: config.numbering }) };
 
-    const context = (): Context => ({ ...config, now: config.now?.() ?? new Date().toISOString() });
+    const context = (): Context => ({
+        now: config.now?.() ?? new Date().toISOString(),
+        timeZone: settings.timeZone ?? "UTC",
+        registry: config.registry,
+        ...(settings.numbering && { numbering: settings.numbering }),
+    });
 
     /** Runs `fn` atomically: on a throw, documents, sequences and the log are as they were. */
     const transaction = async <T>(fn: (ctx: Context) => T): Promise<T> => {
-        const saved = { docs: new Map(docs), sequences: new Map(sequences), length: log.length };
+        const saved = { docs: new Map(docs), sequences: new Map(sequences), numbers: new Map(numbers), length: log.length };
         try {
             return fn(context());
         } catch (e) {
             docs = saved.docs;
             sequences = saved.sequences;
+            numbers = saved.numbers;
             log.length = saved.length;
             throw e;
         }
@@ -41,6 +54,10 @@ export function createMemoryBooks(config: BooksConfig): Books {
     const save = (ctx: Context, before: DocumentState | undefined, state: DocumentState | undefined, events: DocumentEvent[]) => {
         if (!state || events.length === 0) return;
         if (docs.get(state.id) !== before) throw new Error(`document ${state.id} changed during the transaction`);
+        if ("number" in state && numbers.get(state.number) !== state.id) {
+            if (numbers.has(state.number)) throw new InvoiceError("duplicate-number", "number", `number ${state.number} is taken`);
+            numbers.set(state.number, state.id);
+        }
         docs.set(state.id, state);
         events.forEach((event, i) =>
             log.push({ position: log.length + 1, documentId: state.id, version: state.version - events.length + i + 1, at: ctx.now, event }),
@@ -57,6 +74,10 @@ export function createMemoryBooks(config: BooksConfig): Books {
         });
 
     return {
+        configure: async (next) => {
+            checkSettings(next);
+            settings = { ...settings, ...next };
+        },
         create: (id, data) => run(id, { type: "create", id, data }),
         update: (id, data) => run(id, { type: "update", data }),
         discard: (id) => run(id, { type: "discard" }),
@@ -86,6 +107,9 @@ export function createMemoryBooks(config: BooksConfig): Books {
                 return { invoice: result.invoice.state, note: result.note.state };
             }),
         get: async (id) => docs.get(id),
-        events: async (after = 0, limit = 100) => log.slice(after, after + limit),
+        events: async (after, limit) => {
+            const page = checkPage(after, limit);
+            return log.slice(page.after, page.after + page.limit);
+        },
     };
 }

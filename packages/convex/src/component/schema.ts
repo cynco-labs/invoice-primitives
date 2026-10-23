@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { vDocumentEvent, vDocumentState } from "./validators.ts";
+import { vDocumentEvent, vDocumentState, vNumbering } from "./validators.ts";
 
 export default defineSchema({
     /** The current state of each document. `number` is copied out of `state` for lookup by number. */
@@ -22,6 +22,13 @@ export default defineSchema({
         at: v.string(),
         event: vDocumentEvent,
     }).index("by_tenant_and_position", ["tenant", "position"]),
+
+    /** Each tenant's settings (core's `Settings`). */
+    settings: defineTable({
+        tenant: v.string(),
+        timeZone: v.optional(v.string()),
+        numbering: v.optional(vNumbering),
+    }).index("by_tenant", ["tenant"]),
 
     /** The last number taken in each numbering series ("INV-2026-"). */
     sequences: defineTable({

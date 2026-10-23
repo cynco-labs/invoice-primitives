@@ -1,6 +1,6 @@
 # Design
 
-Working name: `invoice-primitives`. Status: prototype of the calculation core, with three country packs. Everything here is open to change before 0.1.
+Working name: `invoice-primitives`. Status: prototype. The core primitives and three backends work end to end; everything here is open to change before 0.1.
 
 ## What it is for
 
@@ -16,27 +16,54 @@ These hold for every module. A change that breaks one needs a design discussion,
 2. **A policy is data with an id, and results carry it.** A result records its policy, the core version and the scale it was computed at. `test/golden` pins the output of every published policy, so a change in behaviour fails CI and needs a new policy id. This is Cynco's `calcVersion`, made public.
 3. **Refuse rather than guess.** An input the core does not handle throws `InvoiceError` with a stable `code` and a `path` into the input. It never returns a plausible wrong figure. An independent review found one place where it did (below), and a mutation test now guards it.
 4. **Traceable to a written rule.** Every field names its EN 16931 business term (BT-x). A check carries an EN 16931 rule id only when it is that rule; checks that follow the policy instead are named for the policy.
-5. **Pure core, I/O at the edges.** `compute`, `verify` and `issue` are synchronous, allocate no ids, and never mutate or freeze what the caller passed in.
+5. **Pure core, I/O at the edges.** `compute`, `verify`, `decide`, `evolve` and `creditInvoice` are synchronous, allocate no ids, and never mutate what the caller passed in. Backends own storage, clocks and numbering.
 6. **The country is data, not a branch.** No `if (country === "MY")` in the core. See "The country seam" for how far this holds today.
 
 ## Layers
 
-| Layer | Module | State |
+| Layer | Where | State |
 | --- | --- | --- |
-| Exact decimal | `decimal.ts`, `allocate.ts` | Built |
-| ISO 4217 minor units | `currencies.ts`, generated from the SIX list | Built |
-| Calculation (BT-106..117, BT-131) | `compute.ts` | Built |
-| Calculation rules as checks | `verify.ts` | Built |
-| Errors with codes and paths | `errors.ts` | Built |
-| Lifecycle: draft, issued, void, notes | `lifecycle.ts` | Built (minimal) |
-| Country packs | `pack.ts`, `packs/{eu,my,jp}.ts` | Policies and void rules only |
-| Full document: parties, dates, references | `model.ts` | Not built |
-| Codecs: UBL 2.1 (Peppol, PINT, MyInvois), CII | `ubl/`, `cii/` | Not built |
+| Exact decimal, allocation | `core/src/money/` | Built |
+| ISO 4217 minor units | `core/src/money/currencies.ts`, generated from the SIX list | Built |
+| Calculation (BT-106..117, BT-131) and its checks | `core/src/calc/` | Built |
+| Errors with codes and paths | `core/src/errors.ts` | Built |
+| Document: draft, issue, void, settle, deliver, as `decide`/`evolve` | `core/src/document/execute.ts` | Built |
+| Balance, derived on read | `core/src/document/balance.ts` | Built |
+| Credit notes, issued and applied together | `core/src/document/credit.ts` | Built |
+| Numbering as data, gapless per series, unique per tenant | `core/src/document/execute.ts`, each backend | Built |
+| Presentation: a localised view with replaceable labels, branded HTML | `core/src/present/` | Built |
+| `Books`: the backend contract, and its conformance suite | `core/src/books.ts`, `core/src/testing/` | Built |
+| Backends | `core/src/memory.ts`, `packages/convex`, `packages/cloudflare` | Built |
+| Country packs | `core/src/packs/` | Policies, categories, void rules; no rules written yet |
+| Listing and search (by status, buyer, due date) | `Books` | Not built |
+| Codecs: UBL 2.1 (Peppol, PINT-MY, MyInvois), CII | `packages/ubl`, ... | Not built |
 | Transport: MyInvois API, Peppol access points | separate packages | Not built |
-| Settlement: payments, credits, ageing | `settlement.ts` | Not built |
 | Tax determination: which tax applies | separate layer | Not built |
 
-The calculation was built first because every other layer depends on it. It is also the part where being wrong is invisible until an auditor or a validator finds it.
+## Architecture
+
+```
+your app ──▶ backend (Convex mutation │ Durable Object │ memory)
+                 │  one transaction:
+                 │    load state → take a number if issuing → execute → save state + events
+                 ▼
+            core: execute(state, command, context) → { state, events }      (pure, synchronous)
+```
+
+- **The state machine is two pure functions.** `decide(state, command, context)` returns events or throws an `InvoiceError`. `evolve(state, event)` returns the next state. The rules live once, in core, and run identically on every backend. A backend loads, numbers and saves; that is all it does.
+- **State is stored, events are appended.** Each document's current state is saved beside the events that produced it, in the same transaction. Reads are one row; the log is the audit trail, the integration feed, and the proof: replaying it must rebuild every document exactly, and the conformance suite checks that on every backend.
+- **Idempotency comes from caller ids, not a key table.** A document id, a settlement id, a delivery id and a credit note id are chosen by the caller. Repeating a command with the same id and the same values returns no events. Repeating it with different values is refused with `duplicate-id` or `already-exists`.
+- **Numbers come from the backend, inside the transaction.** `numberingFor(data, context)` names the series; the backend takes its next value and passes the number into `issue`. A refused issue rolls back and draws nothing, so numbers have no gaps. Each backend also refuses a number already held by another document in the tenant (`duplicate-number`), so a change of numbering settings cannot mint a duplicate.
+- **Balance is never stored.** "Paid", "partly paid" and "overdue" are computed from the settlements and a date each time, so they cannot drift.
+- **A credit note exists only applied.** `create` refuses a credit note. `creditInvoice` creates, issues and applies one in a single transaction, and a credit settlement cannot be reversed on its own. Undoing a credit note is not built, so the pair stays consistent by refusal.
+- **Every backend passes the same suite.** `booksConformance(name, makeBooks)` drives a backend only through `Books`: numbering under concurrency, refused commands leaving no trace, idempotent retries, credits, settings, paging, tenant isolation, and event replay.
+
+### The tenant log is gapless, and that costs throughput
+
+Each tenant's events get positions 1, 2, 3... with no gaps, so a consumer pages by position and can never skip an event that committed late. The price is that every write in a tenant reads the log head:
+
+- **Durable Object.** One object per tenant runs one request at a time, so the cost is nil; the object itself bounds the tenant's throughput.
+- **Convex.** Two writes in one tenant at the same moment conflict, and Convex reruns the loser. Invoicing is business-paced, and issues in a series are serialised by gapless numbering anyway, so this is the right default. A tenant writing many events per second would want per-document versions plus a commit-ordered cursor instead. The conflict path is not exercised by `convex-test`, which runs mutations one at a time, and the sustained rate is unmeasured.
 
 ## The country seam
 
@@ -95,20 +122,15 @@ Under tax-inclusive prices, a line's allowances and charges are tax-inclusive as
 
 ## Evidence
 
-Each item below is reproducible from the repository.
+Each item is reproducible from the repository (`pnpm -r test` from the root).
 
-- **Official examples** (`pnpm corpus`, then `pnpm test`). The corpus is 19 CEN TC 434 UBL examples and 9 Peppol BIS 3 examples. They are fetched, not committed: the CEN files are EUPL-1.2 and the Peppol repository declares no license.
-  - Given each file's stated line amounts, all 28 match every stated total and tax subtotal.
-  - Recomputed from quantity and price, 21 match. The other 7 state line amounts that are not quantity × price (for example 2 × 800.00 stated as 400.00), which Peppol rule R120 forbids. The test checks independently that each mismatch is one of these.
-- **Properties** (`test/properties.test.ts`). 2,000 random invoices per property across MYR, JPY, KWD and EUR, including lines returned in full so tax groups can net to zero. Inputs cover both rounding granularities, four modes each for amounts and tax, and line and document allowances.
-  - Tax-exclusive results satisfy BR-CO-10..16, the per-category taxable amounts, and the policy's tax rounding.
-  - Every figure carries exactly the currency's decimals.
-  - Tax-inclusive results charge exactly the shelf price, and no line net takes the opposite sign of its shelf amount.
-  - Allocation never gains or loses a unit, and recomputation is byte-identical.
-  - The inclusive properties exclude document-level adjustments, which inclusive pricing does not support yet.
-- **Mutations** (`node scripts/mutate.mjs`). Six known bugs are planted one at a time, and the suite must fail on each. That includes the zero-sum bug the independent review found, which the first version of the property tests could not see.
-- **Golden outputs** (`test/golden/*.json`). The output of every published policy is pinned.
-- **Speed** (`node scripts/bench.ts`). One run on an Apple M4 with Node 24 gave a median of 0.04 ms for 10 lines, 0.8 ms for 1,000 lines and 8.9 ms for 10,000 lines. That is linear, about 0.9 µs per line. Nothing guards this number.
+- **Backends.** The 19-scenario conformance suite passes on memory, on Convex (through the component, with `convex-test`) and on Cloudflare (inside `workerd`, through Durable Object RPC). Convex and Cloudflare add their own tests for tenants and the component boundary.
+- **Official examples.** 19 CEN TC 434 UBL examples and 9 Peppol BIS 3 examples, fetched by `pnpm corpus` in `packages/core` (EUPL-1.2 and unlicensed, so not committed). Given each file's stated line amounts, all 28 match every stated total and tax subtotal. From quantity and price, 21 match; the other 7 state line amounts that are not quantity × price, which Peppol rule R120 forbids, and the test checks that independently.
+- **Properties.** 2,000 random invoices per property across MYR, JPY, KWD and EUR, both rounding granularities, four modes each for amounts and tax, with lines returned in full. Results satisfy BR-CO-10..16, the per-category taxable amounts and the policy's tax rounding; every figure carries the currency's decimals; tax-inclusive invoices charge exactly the shelf price; allocation never gains or loses a unit; recomputation is byte-identical.
+- **Mutations.** `node scripts/mutate.mjs` in `packages/core` plants known bugs one at a time (tax a unit high, allocation dropping its residual, a sale and its return zeroing out, overpayment accepted, a refused issue keeping its number, reversed payments still counted, a retried payment applied twice, and others) and requires the suite to fail on each.
+- **Golden outputs.** The output of every published policy is pinned in `test/golden`.
+- **Independent reviews.** Two adversarial reviews by another model found real defects: a sale and its return zeroing out, a credit that could be reversed while its note stood, credit notes created around their invoice, retried payments refused, dates that crashed, and numbers unique only per series. Each is fixed and has a test.
+- **Speed.** One run on an Apple M4 with Node 24: `compute` takes a median 0.8 ms for 1,000 lines and 8.9 ms for 10,000, about 0.9 µs per line. Nothing guards this number.
 
 ## Decisions
 
@@ -120,19 +142,20 @@ Each item below is reproducible from the repository.
 
 ## Known gaps
 
-- `issue` does not yet run a pack's rules or check its tax categories. A line under an EN 16931 policy can carry no tax (BR-CO-04), or carry a category the pack does not know.
-- Under line rounding or `"extract"` pricing, `verify` checks totals and taxable amounts but cannot check tax per category. A passing `verify` there means consistent, not EN 16931 arithmetic.
-- The Japanese pack reads 切り捨て as truncation toward zero, and the Malaysian pack assumes half away from zero. Neither assumption is sourced.
+- `verify` cannot check tax per category under line rounding or `"extract"` pricing; a passing `verify` there means consistent, not EN 16931 arithmetic.
+- No pack writes `rules` yet; the seam runs them at issue, but MyInvois's required fields (TIN, MSIC, classification codes) are not modelled.
+- A document's settlements and deliveries live inside its state. A document with thousands of payments would outgrow a Convex row (1 MB).
+- The Japanese pack reads 切り捨て as truncation toward zero, and the Malaysian pack assumes half away from zero. Neither is sourced.
 
 ## Not built yet, in rough order
 
-1. The country seam decision above.
-2. The full document: parties, dates, references, payment terms, document types (380, 381, 383, 389 self-billed). `issue` runs pack rules.
-3. A UBL codec for Peppol BIS 3 and PINT-MY. The official Schematron goes into the test suite.
-4. A MyInvois codec and client: signing, submission, polling, the 72-hour cancel window.
-5. Tax currency totals (BT-6, BT-111) for foreign-currency invoices.
-6. Settlement: payments and credit notes applied to an invoice, outstanding amount, ageing. All derived, never stored as a status.
-7. Price-level discounts (BT-147, BT-148), withholding taxes, inclusive prices with several taxes per line, and document-level adjustments under inclusive prices.
+1. **Listing.** `list({ status, kind, buyer, dueBefore }, cursor)` on `Books`, so apps do not build a shadow index; with a buyer key on the draft to make it indexable.
+2. **Payments across invoices.** One receipt settling several invoices in one transaction, with a check that the allocations sum to the receipt.
+3. **Richer numbering.** Fiscal years, branches and separate series per document type (self-billed), with the series chosen per document from a tenant's allowed list.
+4. **Undoing a credit note, and refunds.** Today a credit is final and a credit larger than what is owed is refused.
+5. The country seam decision above.
+6. A UBL codec for Peppol BIS 3 and PINT-MY, with the official Schematron in the test suite; then MyInvois (signing, submission, the 72-hour cancel window).
+7. Tax currency totals (BT-6, BT-111), price-level discounts, withholding taxes, inclusive prices with several taxes per line.
 8. A tax determination layer.
 
 ## How Cynco adopts it

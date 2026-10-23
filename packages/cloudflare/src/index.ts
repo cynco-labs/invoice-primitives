@@ -15,6 +15,8 @@
 import { DurableObject } from "cloudflare:workers";
 import {
     bundledPacks,
+    checkPage,
+    checkSettings,
     createRegistry,
     creditInvoice,
     creditNoteData,
@@ -29,7 +31,7 @@ import {
     type DocumentState,
     type DraftData,
     type InvoiceErrorCode,
-    type Numbering,
+    type Settings,
     type Settlement,
     type StoredEvent,
 } from "@invoice-primitives/core";
@@ -71,12 +73,16 @@ export class InvoicingBooks extends DurableObject<unknown> {
      * The tenant's settings. `timeZone` (IANA) dates documents by the seller's
      * calendar, defaulting to UTC; `numbering` defaults to INV-{yyyy}-00001.
      */
-    configure(settings: Settings): void {
-        if (settings.timeZone !== undefined) new Intl.DateTimeFormat("en", { timeZone: settings.timeZone });
-        this.ctx.storage.sql.exec(
-            "INSERT INTO settings (key, value) VALUES ('tenant', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
-            JSON.stringify({ ...this.settings(), ...settings }),
-        );
+    configure(settings: Settings): Outcome<null> {
+        return this.transaction(() => {
+            checkSettings(settings);
+            const next = { ...this.settings(), ...Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined)) };
+            this.ctx.storage.sql.exec(
+                "INSERT INTO settings (key, value) VALUES ('tenant', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+                JSON.stringify(next),
+            );
+            return null;
+        });
     }
 
     private settings(): Settings {
@@ -135,15 +141,18 @@ export class InvoicingBooks extends DurableObject<unknown> {
         return this.load(id);
     }
 
-    events(after = 0, limit = 100): StoredEvent[] {
-        return this.ctx.storage.sql
-            .exec<{ position: number; document_id: string; version: number; at: string; event: string }>(
-                "SELECT * FROM events WHERE position > ? ORDER BY position LIMIT ?",
-                after,
-                limit,
-            )
-            .toArray()
-            .map((r) => ({ position: r.position, documentId: r.document_id, version: r.version, at: r.at, event: JSON.parse(r.event) as DocumentEvent }));
+    events(after?: number, limit?: number): Outcome<StoredEvent[]> {
+        return this.transaction(() => {
+            const page = checkPage(after, limit);
+            return this.ctx.storage.sql
+                .exec<{ position: number; document_id: string; version: number; at: string; event: string }>(
+                    "SELECT * FROM events WHERE position > ? ORDER BY position LIMIT ?",
+                    page.after,
+                    page.limit,
+                )
+                .toArray()
+                .map((r) => ({ position: r.position, documentId: r.document_id, version: r.version, at: r.at, event: JSON.parse(r.event) as DocumentEvent }));
+        });
     }
 
     private run(id: string, command: Command): Outcome<DocumentState> {
@@ -189,6 +198,9 @@ export class InvoicingBooks extends DurableObject<unknown> {
         if (!state || events.length === 0) return;
         const sql = this.ctx.storage.sql;
         const number = "number" in state ? state.number : null;
+        if (number !== null && sql.exec("SELECT 1 FROM documents WHERE number = ? AND id != ?", number, state.id).toArray().length) {
+            throw new InvoiceError("duplicate-number", "number", `number ${number} is taken`);
+        }
         if (before) {
             sql.exec(
                 "UPDATE documents SET status = ?, number = ?, version = ?, state = ? WHERE id = ? AND version = ?",
@@ -212,11 +224,6 @@ export class InvoicingBooks extends DurableObject<unknown> {
     }
 }
 
-export interface Settings {
-    timeZone?: string;
-    numbering?: Numbering;
-}
-
 /** A command's result across RPC: the value, or the refusal as data. */
 export type Outcome<T> = { ok: true; value: T } | { ok: false; error: { code: InvoiceErrorCode; path: string; detail: string } };
 
@@ -224,7 +231,7 @@ export type Outcome<T> = { ok: true; value: T } | { ok: false; error: { code: In
  * A tenant's books, from a Worker. Same interface as every other backend;
  * refusals arrive as `InvoiceError` with their code and path.
  */
-export function booksFor(namespace: DurableObjectNamespace<InvoicingBooks>, tenant: string): Books & { configure(settings: Settings): Promise<void> } {
+export function booksFor(namespace: DurableObjectNamespace<InvoicingBooks>, tenant: string): Books {
     const stub = namespace.getByName(tenant);
     const call = async <T>(outcome: Promise<Outcome<T>>): Promise<T> => {
         const o = await outcome;
@@ -232,7 +239,9 @@ export function booksFor(namespace: DurableObjectNamespace<InvoicingBooks>, tena
         throw new InvoiceError(o.error.code, o.error.path, o.error.detail);
     };
     return {
-        configure: async (settings) => stub.configure(settings),
+        configure: async (settings) => {
+            await call(stub.configure(settings));
+        },
         create: (id, data) => call(stub.create(id, data)),
         update: (id, data) => call(stub.update(id, data)),
         discard: (id) => call(stub.discard(id)),
@@ -244,6 +253,6 @@ export function booksFor(namespace: DurableObjectNamespace<InvoicingBooks>, tena
         completeDelivery: (id, deliveryId, status, detail) => call(stub.completeDelivery(id, deliveryId, status, detail)),
         credit: (invoiceId, note) => call(stub.credit(invoiceId, note)),
         get: async (id) => stub.get(id),
-        events: async (after, limit) => stub.events(after, limit),
+        events: (after, limit) => call(stub.events(after, limit)),
     };
 }

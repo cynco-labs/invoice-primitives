@@ -18,6 +18,7 @@ export const INVOICE_ERROR_CODES = [
     "verification-failed",
     "missing-field",
     "duplicate-id",
+    "duplicate-number",
     "unknown-currency",
     "empty-invoice",
     "duplicate-line-id",
