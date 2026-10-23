@@ -1,190 +1,95 @@
-# invoice-primitives
+# Invoice Primitives, from Cynco Labs
 
-Invoicing primitives for TypeScript: exact money, tax that rounds the way tax authorities expect, documents that cannot change after they are issued, gapless numbering, payments, credit notes and an event log. Core is plain JavaScript with no dependencies, so it runs on Node, Bun, Deno, Workers, Convex and in the browser; backends for Convex and Cloudflare Durable Objects ship alongside.
+Invoice Primitives is an open source invoicing library for TypeScript: exact
+money, tax that rounds the way tax authorities expect, gapless numbering,
+payments, credit notes and an event log, as small pure functions with no
+dependencies. Run it in memory, as a [Convex](https://convex.dev) component, or
+on Cloudflare with a Durable Object per tenant. Made by
+[Cynco Labs](https://github.com/cynco-labs).
 
-Working name. Not published yet.
+> [!NOTE]
+> Invoice Primitives is pre-release. The API can change before 0.1, and the
+> packages are not on npm yet.
 
-## Why
+## Features
 
-Every product that bills someone rebuilds the same few hard things, and most get at least one of them wrong:
+- Exact decimal money on `bigint`. Amounts never pass through a float.
+- Calculation checked against all 28 official EN 16931 and Peppol example
+  invoices, with rounding per tax category or per line, tax-inclusive prices
+  and cash rounding
+- Invoices that cannot change after issue. Corrections are credit notes, issued
+  and applied in one step.
+- Gapless numbering per series, unique per tenant, safe under concurrent issues
+- Payments, partial payments and reversals. "Paid" and "overdue" are derived,
+  never stored.
+- Country packs for Malaysia (PINT-MY, MyInvois), Japan (qualified invoices) and
+  the EU (EN 16931), with named taxes like `tax: "service-8"`
+- An event log per tenant that rebuilds every document exactly
+- Localised, brandable HTML in any language
+- One `Books` interface on every backend, held to one shared conformance suite
 
-- **Money drifts.** `0.1 + 0.2`, rounding each line instead of each tax category, and a cent lost when a discount is split across lines.
-- **Issued invoices change.** An edit after issue rewrites a legal document.
-- **Numbers have gaps or repeats.** Two requests issue at once, or a failed issue burns a number.
-- **Status lies.** A stored "paid" or "overdue" flag drifts from the payments behind it.
+## Install
 
-This library makes each of those impossible by construction, and proves it with tests anyone can rerun.
+```bash
+pnpm add @invoice-primitives/core
+```
 
-## Packages
-
-| Package | What it is |
-| --- | --- |
-| `@invoice-primitives/core` | The primitives as pure functions. No dependencies, no I/O. |
-| `@invoice-primitives/convex` | A Convex component: `app.use(invoicing)`, then call it from your mutations. |
-| `@invoice-primitives/cloudflare` | A Durable Object per tenant, with SQLite. |
-
-## The primitives
-
-| Primitive | What you get |
-| --- | --- |
-| Money | `Decimal` on bigint. Only `round` and `div` lose precision, and both make you name a rounding mode. Currency decimals come from ISO 4217 (JPY 0, MYR 2, KWD 3). |
-| Calculation | `compute(input, policy)` gives every EN 16931 total and tax subtotal. Policies cover rounding per line or per tax category, prices with or without tax, and cash rounding. |
-| Document | Invoice and credit note as plain JSON: `draft → issued → void`. Figures are fixed at issue. |
-| Numbering | Gapless sequences per series, such as `INV-{yyyy}-00001`, taken in the same transaction as the issue. |
-| Settlement | Payments, credits and write-offs against an issued document. Balance, "paid" and "overdue" are derived, never stored. |
-| Credit notes | `credit(invoice, note)` issues the note and applies it to the invoice in one step. |
-| Delivery | A record of each delivery request and its outcome. `present()` gives a localised view with replaceable labels for any language, and `renderHtml()` turns it into branded, email-safe HTML. |
-| Event log | Every change as an event, at gapless positions per tenant. Replaying the log rebuilds every document exactly. |
-| Country packs | Tax categories, rounding policies and void rules as data. EU (EN 16931), Malaysia (PINT-MY, MyInvois 72-hour cancel) and Japan (qualified invoices) ship today. |
+Add a backend when you need one: `@invoice-primitives/convex` or
+`@invoice-primitives/cloudflare`.
 
 ## Quick start
 
-Configure a tenant once. After that, an invoice is a buyer and lines.
-
 ```ts
-import { createMemoryBooks, balance, present, renderHtml } from "@invoice-primitives/core";
+import { createMemoryBooks } from "@invoice-primitives/core";
 
 const books = createMemoryBooks();
 await books.configure({ country: "MY", seller: { name: "Kedai Kopi Sdn Bhd" } });
 
 const draft = await books.create({
-    buyer: { name: "Acme Trading", email: "ap@acme.example" },
-    due: { days: 30 },
-    lines: [{ name: "Consulting", quantity: "10", price: "150.00", tax: "service-8" }],
+  buyer: { name: "Acme Trading" },
+  lines: [{ name: "Consulting", quantity: "10", price: "150.00", tax: "service-8" }],
 });
+
 const invoice = await books.issue(draft.id); // INV-2026-00001, payable "1620.00"
-await books.settle(draft.id, { id: "fpx_123", kind: "payment", amount: "620.00", date: "2026-10-25" });
-
-const doc = await books.get(draft.id);
-balance(doc, "2026-10-25"); // { outstanding: "1000.00", status: "partial", overdue: false, ... }
-const html = renderHtml(present(doc, { locale: "en-MY", asOf: "2026-10-25" }), { logoUrl: "https://…", accent: "#0f766e" });
 ```
 
-`packages/core/test/readme.test.ts` runs this example as written, with the clock pinned to 23 October 2026.
+Swap the first line for `invoicing.books(ctx, tenant)` on Convex or
+`booksFor(env.INVOICING, tenant)` on Cloudflare. The rest stays the same.
 
-**What `country: "MY"` gives you.** The calculation policy (PINT-MY), the currency (MYR), the time zone (Asia/Kuala_Lumpur) and named taxes: `sales-10`, `sales-5`, `service-8`, `service-6`, `tourism`, `exempt` and `outside-scope`. Each named tax records its source and the date it was checked. Japan (`"JP"`) and the EU (`"EU"`) ship too. Any of these can be overridden in `configure` or on a single document. A line can also spell its taxes out (`taxes: [{ category: "SE", rate: "8" }]`) instead of naming one.
+## Documentation
 
-**Install.** `npm install @invoice-primitives/core`, plus `@invoice-primitives/convex` or `@invoice-primitives/cloudflare` for a backend. The packages ship compiled JavaScript with type declarations and have no runtime dependencies beyond core. Until they are published, `pnpm pack` in each package gives you tarballs to install.
+- [Guide](docs/guide.md): settings, backends, credit notes, errors,
+  presentation, and when to use R2, D1 or KV
+- [Design](DESIGN.md): the rules the code keeps, the decisions behind it, and
+  what is not built yet
+- Packages: [core](packages/core), [convex](packages/convex),
+  [cloudflare](packages/cloudflare)
 
-**Good to know:**
-- `balance(doc, asOf)` counts the payments dated on or before `asOf`. Leave `asOf` out to count all of them.
-- A credit note takes the same short lines as `create`, with positive quantities: `books.credit(invoiceId, { id: "cn_1", input: { lines: [{ name: "Refund: 1 hour", quantity: "1", price: "150.00", tax: "service-8" }] } })`. It is issued and applied to the invoice in one step.
-- A party's address is `{ lines: ["Lot 12, Jalan Ampang"], city: "Kuala Lumpur", postalCode: "50450", country: "MY" }`.
+## Agent skill
 
-**What you can rely on:**
-- Amounts are strings in and out (`"150.00"`), so nothing passes through a float.
-- A command that repeats what already happened changes nothing, so a retried request is safe. Pass your own `id` to `create` for the same guarantee on creation.
-- A refused command throws an `InvoiceError` with a stable `code` and a `path` into your input, and a message that says what to do: `lines[0].tax: MY has no tax named vat-20; it has sales-10, sales-5, service-8, ...`.
+Teach your coding agent to integrate Invoice Primitives with the
+[Skills CLI](https://skills.sh/docs/cli):
 
-## Pick a backend
-
-The code above runs unchanged on every backend. Only the first line changes.
-
-| You run on | First line | Data lives in |
-| --- | --- | --- |
-| Tests, scripts, prototypes | `createMemoryBooks()` | Memory |
-| Convex | `invoicing.books(ctx, tenant)` | The component's own tables in your deployment |
-| Cloudflare Workers | `booksFor(env.INVOICING, tenant)` | One Durable Object per tenant, with its own SQLite |
-
-### Convex
-
-```ts
-// convex/convex.config.ts
-import { defineApp } from "convex/server";
-import invoicing from "@invoice-primitives/convex/convex.config";
-
-const app = defineApp();
-app.use(invoicing);
-export default app;
+```bash
+npx skills add cynco-labs/invoice-primitives --skill invoicing
 ```
 
-```ts
-// convex/invoices.ts
-import { Invoicing } from "@invoice-primitives/convex";
-import { components } from "./_generated/api";
+## Development
 
-const invoicing = new Invoicing(components.invoicing);
+We use pnpm workspaces and Vitest. The Node version is pinned in
+`.node-version`.
 
-export const issue = mutation({
-    args: { id: v.string() },
-    handler: async (ctx, { id }) => invoicing.books(ctx, await tenantOf(ctx)).issue(id),
-});
+```bash
+pnpm install
+pnpm corpus      # fetch the official EN 16931 and Peppol example invoices
+pnpm test        # every package; Cloudflare's suite runs inside workerd
+pnpm typecheck
+pnpm build
+pnpm mutate      # plant known bugs one at a time; the suite must catch each
 ```
 
-`tenantOf` is yours: derive the tenant from `ctx.auth`, never from a client argument. See [packages/convex/README.md](packages/convex/README.md).
-
-### Cloudflare
-
-```jsonc
-// wrangler.jsonc
-"durable_objects": { "bindings": [{ "name": "INVOICING", "class_name": "InvoicingBooks" }] },
-"migrations": [{ "tag": "v1", "new_sqlite_classes": ["InvoicingBooks"] }]
-```
-
-```ts
-// src/index.ts
-export { InvoicingBooks } from "@invoice-primitives/cloudflare";
-import { booksFor } from "@invoice-primitives/cloudflare";
-
-export default {
-    async fetch(request, env) {
-        const books = booksFor(env.INVOICING, tenantOf(request)); // yours, from your auth
-        // ... books.create(...), books.issue(...)
-    },
-};
-```
-
-The Durable Object deploys with your Worker (`wrangler deploy`); there is nothing else to run. See [packages/cloudflare/README.md](packages/cloudflare/README.md). Why a Durable Object and not D1: issuing needs read → decide → write in one transaction, so that numbers are gapless. A Durable Object gives that directly. D1's API commits statements as they run, or in a `batch()` fixed up front.
-
-### What about R2, D1, KV?
-
-- **R2.** Not needed. Invoices are rows, not files. When you want to keep a rendered copy of each issued invoice (an archive, or a PDF to attach), store `renderHtml(...)` or your PDF in R2 yourself. The event log tells you when (`issued`).
-- **D1.** Not needed. A D1 backend is possible; it would pass the same conformance suite, but it needs retries for what a Durable Object does in one transaction.
-- **KV.** Not suitable. It is eventually consistent, so two requests could take the same number.
-
-## How it fits together
-
-```
-your app ──▶ backend (Convex mutation │ Durable Object │ memory)
-                 │  one transaction:
-                 │    load settings and state → expand the short document
-                 │    → take a number if issuing → execute → save state + events
-                 ▼
-            core: execute(state, command, context) → { state, events }      (pure, synchronous)
-```
-
-The whole state machine is two pure functions in `core`: `decide(state, command) → events` and `evolve(state, event) → state`. A backend only loads, numbers and saves. So the rules are identical everywhere, and a new backend is about 150 lines.
-
-## Proof
-
-Run these from the repository root:
-
-```sh
-pnpm -r test
-```
-
-- The same 21-scenario conformance suite passes against all three backends: memory, Convex (`convex-test`) and Cloudflare (inside `workerd`). It covers the short path, settings, numbering under concurrency, gapless numbers after a refused issue, overpayment, idempotent retries, credit notes, tenant isolation, paging, and rebuilding every document from the event log.
-- The calculation matches all 28 official EN 16931 and Peppol BIS 3 example invoices (`pnpm --filter @invoice-primitives/core corpus` fetches them first).
-- 2,000 random invoices per property never break the EN 16931 rules and never gain or lose a cent.
-
-This one runs inside the core package:
-
-```sh
-cd packages/core && node scripts/mutate.mjs
-```
-
-It plants known bugs one at a time and requires the tests to catch each.
-
-## Hacking on it
-
-- **A new backend.** Implement `Books` and pass `booksConformance("my-backend", makeBooks)` from `@invoice-primitives/core/testing`. Read `packages/core/src/memory.ts` first; it is the whole pattern.
-- **A new country.** Write a `CountryPack` (`packages/core/src/packs/my.ts` is under 80 lines): policies, tax categories, defaults and named taxes, each with its source. A policy you publish is pinned by a golden file, so its figures never change silently.
-- **Your own look.** `present()` gives every string already formatted, so a React component or a PDF template never formats money itself.
-
-## Status
-
-This is a prototype. `DESIGN.md` covers the laws the code keeps, the decisions behind it, what is not built yet, and the open questions.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-Apache-2.0
+[Apache 2.0](LICENSE.md)

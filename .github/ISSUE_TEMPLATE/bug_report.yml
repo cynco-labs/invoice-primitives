@@ -1,0 +1,31 @@
+name: Bug report
+description: Something computed, refused or rendered wrongly.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what you got. Paste the full InvoiceError (code, path, detail) if there was one.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The smallest input that shows it, ideally a `books.create(...)` call or a `compute(...)` input and policy.
+      render: ts
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      options: [memory, convex, cloudflare, none (core functions only)]
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      placeholder: "@invoice-primitives/core 0.0.0"

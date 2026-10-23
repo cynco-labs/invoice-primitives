@@ -1,0 +1,23 @@
+name: Country pack
+description: Request or propose support for a country's invoicing rules.
+labels: [country-pack]
+body:
+  - type: input
+    id: country
+    attributes:
+      label: Country
+      placeholder: Singapore (SG)
+    validations:
+      required: true
+  - type: textarea
+    id: rules
+    attributes:
+      label: Rules and sources
+      description: Tax categories and rates, where tax is rounded, cash rounding, numbering and cancellation rules, and the e-invoicing format if there is a mandate. Link the tax authority's own publications.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Worked examples
+      description: Official or real-world invoices with their totals, if you have them. Remove personal data.

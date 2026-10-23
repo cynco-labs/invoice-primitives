@@ -1,29 +1,34 @@
 {
   "name": "@invoice-primitives/convex",
   "version": "0.0.0",
-  "type": "module",
-  "license": "Apache-2.0",
   "description": "Invoicing as a Convex component.",
+  "keywords": [
+    "invoicing",
+    "invoice",
+    "convex",
+    "convex-component",
+    "e-invoicing"
+  ],
+  "homepage": "https://github.com/cynco-labs/invoice-primitives/tree/main/packages/convex#readme",
+  "bugs": {
+    "url": "https://github.com/cynco-labs/invoice-primitives/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cynco-labs/invoice-primitives.git",
+    "directory": "packages/convex"
+  },
+  "license": "Apache-2.0",
+  "author": "Cynco Labs",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
   "exports": {
     ".": "./src/client/index.ts",
     "./convex.config": "./src/component/convex.config.ts",
     "./convex.config.js": "./src/component/convex.config.ts"
-  },
-  "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
-    "prepack": "pnpm build"
-  },
-  "dependencies": {
-    "@invoice-primitives/core": "workspace:*",
-    "convex": "^1.48.0"
-  },
-  "devDependencies": {
-    "@edge-runtime/vm": "^5.0.0",
-    "convex-test": "^0.0.64",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.5"
   },
   "publishConfig": {
     "exports": {
@@ -43,6 +48,23 @@
   },
   "files": [
     "dist",
-    "README.md"
-  ]
+    "README.md",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "@invoice-primitives/core": "workspace:*",
+    "convex": "^1.48.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "convex-test": "^0.0.64",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
 }

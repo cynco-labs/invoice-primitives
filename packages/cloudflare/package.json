@@ -1,27 +1,33 @@
 {
   "name": "@invoice-primitives/cloudflare",
   "version": "0.0.0",
-  "type": "module",
-  "license": "Apache-2.0",
   "description": "Invoicing on Cloudflare: one Durable Object per tenant, with SQLite storage.",
-  "dependencies": {
-    "@invoice-primitives/core": "workspace:*"
+  "keywords": [
+    "invoicing",
+    "invoice",
+    "cloudflare",
+    "workers",
+    "durable-objects",
+    "e-invoicing"
+  ],
+  "homepage": "https://github.com/cynco-labs/invoice-primitives/tree/main/packages/cloudflare#readme",
+  "bugs": {
+    "url": "https://github.com/cynco-labs/invoice-primitives/issues"
   },
-  "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.4.7",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.5",
-    "wrangler": "^4.152.0"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cynco-labs/invoice-primitives.git",
+    "directory": "packages/cloudflare"
   },
+  "license": "Apache-2.0",
+  "author": "Cynco Labs",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
-  },
-  "scripts": {
-    "test": "vitest run",
-    "typecheck": "tsc --noEmit",
-    "typegen": "wrangler types",
-    "build": "tsc -p tsconfig.build.json",
-    "prepack": "pnpm build"
   },
   "publishConfig": {
     "exports": {
@@ -33,6 +39,23 @@
   },
   "files": [
     "dist",
-    "README.md"
-  ]
+    "README.md",
+    "LICENSE.md"
+  ],
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "typegen": "wrangler types",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "@invoice-primitives/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.7",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5",
+    "wrangler": "^4.152.0"
+  }
 }

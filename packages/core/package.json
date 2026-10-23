@@ -1,13 +1,56 @@
 {
   "name": "@invoice-primitives/core",
   "version": "0.0.0",
-  "type": "module",
-  "license": "Apache-2.0",
   "description": "Exact, versioned invoicing primitives: calculation, lifecycle, settlement, presentation.",
+  "keywords": [
+    "invoicing",
+    "invoice",
+    "e-invoicing",
+    "en16931",
+    "peppol",
+    "myinvois",
+    "tax",
+    "money",
+    "decimal",
+    "accounting"
+  ],
+  "homepage": "https://github.com/cynco-labs/invoice-primitives/tree/main/packages/core#readme",
+  "bugs": {
+    "url": "https://github.com/cynco-labs/invoice-primitives/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cynco-labs/invoice-primitives.git",
+    "directory": "packages/core"
+  },
+  "license": "Apache-2.0",
+  "author": "Cynco Labs",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./testing": "./src/testing/conformance.ts"
   },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./testing": {
+        "types": "./dist/testing/conformance.d.ts",
+        "default": "./dist/testing/conformance.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE.md"
+  ],
   "scripts": {
     "gen:currencies": "node scripts/gen-currencies.mjs",
     "corpus": "node scripts/fetch-corpus.mjs",
@@ -32,21 +75,5 @@
     "fast-xml-parser": "^5.11.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
-  },
-  "publishConfig": {
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "./testing": {
-        "types": "./dist/testing/conformance.d.ts",
-        "default": "./dist/testing/conformance.js"
-      }
-    }
-  },
-  "files": [
-    "dist",
-    "README.md"
-  ]
+  }
 }

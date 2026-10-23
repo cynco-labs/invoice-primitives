@@ -1,4 +1,5 @@
 // Downloads the official EN 16931 and Peppol BIS 3 example invoices into corpus/.
+// Uses GITHUB_TOKEN when set, since CI runners share the anonymous rate limit.
 // They are fetched, not vendored: the CEN files are EUPL-1.2 and the Peppol
 // repository declares no license.
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -13,7 +14,9 @@ mkdirSync(out, { recursive: true });
 let count = 0;
 for (const { repo, dir, ref, prefix } of SOURCES) {
     const listing = await (
-        await fetch(`https://api.github.com/repos/${repo}/contents/${dir}?ref=${ref}`)
+        await fetch(`https://api.github.com/repos/${repo}/contents/${dir}?ref=${ref}`, {
+            headers: process.env.GITHUB_TOKEN ? { authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {},
+        })
     ).json();
     for (const file of listing) {
         if (!/\.xml$/i.test(file.name)) continue;
