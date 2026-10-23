@@ -1,0 +1,10 @@
+// Used by the tests. An app adds the same binding and migration to its own wrangler config.
+{
+  "name": "invoice-primitives-test",
+  "main": "test/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "INVOICING", "class_name": "InvoicingBooks" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["InvoicingBooks"] }]
+}

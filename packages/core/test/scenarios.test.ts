@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { allocate, compute, dec, InvoiceError, verify, type InvoiceErrorCode, type IssuedState } from "../src/index.ts";
+import { allocate, bundledPacks, compute, createRegistry, dec, InvoiceError, numberingFor, verify, type InvoiceErrorCode, type IssuedState } from "../src/index.ts";
+import { sampleInvoice } from "../src/testing/conformance.ts";
 import { eu } from "../src/packs/eu.ts";
 import { jp, jpPolicy } from "../src/packs/jp.ts";
 import { my } from "../src/packs/my.ts";
@@ -199,6 +200,17 @@ describe("scenarios", () => {
         expect(out.policy.id).toBe("en16931@1");
         expect(out.core).toMatch(/^@invoice-primitives\/core@/);
         expect(out.scale).toBe(2);
+    });
+});
+
+describe("numbering", () => {
+    it("is data: a prefix with the issue year, and a width", () => {
+        const ctx = { now: "2026-10-23T00:00:00Z", timeZone: "UTC", registry: createRegistry(bundledPacks) };
+        const custom = { invoice: { prefix: "KK/{yyyy}/", digits: 3 }, "credit-note": { prefix: "KK-CN/", digits: 4 } };
+        const inv = numberingFor(sampleInvoice({ issueDate: "2027-01-02" }), { ...ctx, numbering: custom });
+        expect([inv.series, inv.format(7)]).toEqual(["KK/2027/", "KK/2027/007"]);
+        expect(numberingFor(sampleInvoice({ kind: "credit-note", corrects: "x" }), { ...ctx, numbering: custom }).format(12)).toBe("KK-CN/0012");
+        expect(numberingFor(sampleInvoice(), ctx).format(1)).toBe("INV-2026-00001");
     });
 });
 

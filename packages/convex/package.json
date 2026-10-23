@@ -1,0 +1,26 @@
+{
+  "name": "@invoice-primitives/convex",
+  "version": "0.0.0",
+  "type": "module",
+  "license": "Apache-2.0",
+  "description": "Invoicing as a Convex component.",
+  "exports": {
+    ".": "./src/client/index.ts",
+    "./convex.config": "./src/component/convex.config.ts",
+    "./convex.config.js": "./src/component/convex.config.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@invoice-primitives/core": "workspace:*",
+    "convex": "^1.48.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
+    "convex-test": "^0.0.64",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.5"
+  }
+}

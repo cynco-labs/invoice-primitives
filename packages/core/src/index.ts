@@ -3,7 +3,7 @@ export { allocate } from "./money/allocate.ts";
 export { compute, minorUnits, taxKey } from "./calc/compute.ts";
 export { verify, type Violation } from "./calc/verify.ts";
 export type * from "./calc/model.ts";
-export { InvoiceError, type InvoiceErrorCode } from "./errors.ts";
+export { INVOICE_ERROR_CODES, InvoiceError, isInvoiceErrorCode, type InvoiceErrorCode } from "./errors.ts";
 export { CORE } from "./version.ts";
 export { createRegistry, type CountryPack, type Registry, type Rule, type TaxCategory, type VoidDecision } from "./pack.ts";
 export { decide, evolve, execute, numberingFor, issueDateOf, defaultNumbering, type Context, type Numbering } from "./document/execute.ts";

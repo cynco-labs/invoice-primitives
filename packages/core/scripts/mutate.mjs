@@ -32,10 +32,28 @@ const MUTANTS = [
         to: `if (false) {`,
     },
     {
-        name: "issue freezes the caller's input",
-        file: "src/lifecycle.ts",
-        from: `const input = structuredClone(d.input);`,
-        to: `const input = d.input;`,
+        name: "overpayment accepted",
+        file: "src/document/execute.ts",
+        from: `if (amount.cmp(outstanding) > 0) {`,
+        to: `if (false) {`,
+    },
+    {
+        name: "a refused issue keeps the number it drew",
+        file: "src/memory.ts",
+        from: `sequences = saved.sequences;`,
+        to: ``,
+    },
+    {
+        name: "reversed settlements still count as paid",
+        file: "src/document/balance.ts",
+        from: `doc.settlements.filter((s) => !s.reversed)`,
+        to: `doc.settlements.filter(() => true)`,
+    },
+    {
+        name: "a retried payment is applied twice",
+        file: "src/document/execute.ts",
+        from: `const existing = doc.settlements.find((x) => x.id === s.id);`,
+        to: `const existing = undefined as Settlement | undefined;`,
     },
     {
         name: "half-even where half away from zero is required",

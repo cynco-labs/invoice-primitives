@@ -46,12 +46,16 @@ export interface Context {
     numbering?: Numbering;
 }
 
-/** The sequence a document's number comes from, and how a sequence value reads. */
-export type Numbering = (kind: DocumentKind, issueDate: string) => { series: string; format(sequence: number): string };
+/**
+ * How document numbers read, per kind, as data so any backend can store it.
+ * `{yyyy}` in a prefix is the issue year; each distinct prefix is its own
+ * sequence, so "INV-{yyyy}-" restarts every year.
+ */
+export type Numbering = Readonly<Record<DocumentKind, { prefix: string; digits: number }>>;
 
-export const defaultNumbering: Numbering = (kind, issueDate) => {
-    const prefix = `${kind === "invoice" ? "INV" : "CN"}-${issueDate.slice(0, 4)}-`;
-    return { series: prefix, format: (n) => `${prefix}${String(n).padStart(5, "0")}` };
+export const defaultNumbering: Numbering = {
+    invoice: { prefix: "INV-{yyyy}-", digits: 5 },
+    "credit-note": { prefix: "CN-{yyyy}-", digits: 5 },
 };
 
 export function issueDateOf(data: DraftData, ctx: Context): string {
@@ -64,7 +68,9 @@ export function issueDateOf(data: DraftData, ctx: Context): string {
  * issue never consumes a number and numbers have no gaps.
  */
 export function numberingFor(data: DraftData, ctx: Context): { series: string; format(sequence: number): string } {
-    return (ctx.numbering ?? defaultNumbering)(data.kind, issueDateOf(data, ctx));
+    const { prefix, digits } = (ctx.numbering ?? defaultNumbering)[data.kind];
+    const series = prefix.replaceAll("{yyyy}", issueDateOf(data, ctx).slice(0, 4));
+    return { series, format: (n) => `${series}${String(n).padStart(digits, "0")}` };
 }
 
 export function execute(
