@@ -66,6 +66,7 @@ export class Decimal {
 
     /** `this / divisor`, rounded to `scale` places. */
     div(divisor: Decimal, scale: number, mode: RoundingMode): Decimal {
+        assertScale(scale);
         if (divisor.coef === 0n) throw new RangeError("division by zero");
         // this/divisor = (a·10^-sa)/(b·10^-sb); scaled by 10^scale it is a·10^k / b.
         const k = scale - this.scale + divisor.scale;
@@ -75,12 +76,14 @@ export class Decimal {
     }
 
     round(scale: number, mode: RoundingMode): Decimal {
+        assertScale(scale);
         if (scale >= this.scale) return new Decimal(this.rescale(scale), scale);
         return new Decimal(roundDiv(this.coef, pow10(this.scale - scale), mode), scale);
     }
 
     /** Rounds to a multiple of `increment` (cash rounding: 0.05). */
     roundTo(increment: Decimal, mode: RoundingMode): Decimal {
+        if (increment.sign() <= 0) throw new RangeError(`rounding increment must be positive, got ${increment}`);
         return this.div(increment, 0, mode).mul(increment);
     }
 
@@ -135,6 +138,10 @@ export class Decimal {
 }
 
 export const dec = Decimal.from;
+
+function assertScale(scale: number): void {
+    if (!Number.isSafeInteger(scale) || scale < 0) throw new RangeError(`scale must be a non-negative integer, got ${scale}`);
+}
 
 /** Integer `n / d` rounded by `mode`. */
 function roundDiv(n: bigint, d: bigint, mode: RoundingMode): bigint {

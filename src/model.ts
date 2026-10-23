@@ -46,22 +46,34 @@ export interface LineInput {
     taxes: readonly TaxInput[];
 }
 
-/** An allowance or charge: a stated amount, or `percent` of `base`. */
-export interface Adjustment {
-    /** BT-136 / BT-141 / BT-92 / BT-99. */
-    amount?: string;
-    /** BT-138 / BT-143 / BT-94 / BT-101. */
-    percent?: string;
-    /** BT-137 / BT-142 / BT-93 / BT-100. Defaults to the line gross, or the sum of line nets. */
-    base?: string;
+/**
+ * An allowance or charge: a stated amount, or `percent` of a stated `base`.
+ * A stated amount wins; its percent and base are then recorded, not checked.
+ * Under tax-inclusive prices a line adjustment is tax-inclusive too.
+ */
+export type Adjustment = {
     reason?: string;
     reasonCode?: string;
-}
+} & (
+    | {
+          /** BT-136 / BT-141 / BT-92 / BT-99. */
+          amount: string;
+          percent?: string;
+          base?: string;
+      }
+    | {
+          amount?: undefined;
+          /** BT-138 / BT-143 / BT-94 / BT-101. */
+          percent: string;
+          /** BT-137 / BT-142 / BT-93 / BT-100. */
+          base: string;
+      }
+);
 
-export interface DocumentAdjustment extends Adjustment {
+export type DocumentAdjustment = Adjustment & {
     /** BT-95 / BT-102. EN 16931 requires the tax category of a document-level adjustment. */
     taxes: readonly TaxInput[];
-}
+};
 
 export interface TaxInput {
     /** BT-151's scheme. "VAT" is EN 16931's word for any consumption tax (SST, GST). */
@@ -81,30 +93,42 @@ export interface TaxInput {
 }
 
 /**
- * How a jurisdiction rounds. Results carry `id`, so a document issued under a
- * policy recomputes identically for as long as that policy id exists: change
- * behaviour by publishing a new id, never by editing one.
+ * How a jurisdiction rounds. Results carry the policy and the core version, so
+ * a document issued under them recomputes identically. Change behaviour by
+ * publishing a new policy id, never by editing one; `test/golden` pins every
+ * published id.
  */
-export interface Policy {
+export type Policy = DocumentRounding | LineRounding;
+
+interface PolicyBase {
     readonly id: string;
-    /**
-     * "document": tax per (scheme, category, rate) on the summed taxable
-     * amount, rounded once (EN 16931 BR-CO-17, PINT, Japan's qualified invoice).
-     * "line": tax per line per tax, rounded each time, then summed.
-     */
-    readonly taxRounding: "document" | "line";
-    readonly mode: RoundingMode;
+    readonly rounding: {
+        /** Line gross, percentage adjustments, cash rounding. */
+        readonly amounts: RoundingMode;
+        /** Tax amounts and tax extracted from inclusive prices. */
+        readonly tax: RoundingMode;
+    };
+    /** Round the amount due to this increment, recording BT-114 (Malaysia: "0.05"). */
+    readonly cashIncrement?: string;
+}
+
+/** Tax per (scheme, category, rate) on the summed taxable amount, rounded once: EN 16931 BR-CO-17, PINT, Japan. */
+export interface DocumentRounding extends PolicyBase {
+    readonly taxRounding: "document";
     /**
      * false: prices are net of tax (EN 16931).
      * "extract": tax = round(gross × rate ÷ (100 + rate)), taxable = gross − tax
      * (Japan; most retail). BR-CO-17 can be a unit off.
      * "reconcile": the taxable amount is chosen so BR-CO-17 holds; a gross no
      * taxable amount reaches leaves its residual in BT-114.
-     * Under line rounding both extract per line.
      */
     readonly pricesIncludeTax: false | "extract" | "reconcile";
-    /** Round the payable amount to this increment, recording BT-114 (Malaysia: "0.05"). */
-    readonly cashIncrement?: string;
+}
+
+/** Tax per line per tax, rounded each time, then summed. */
+export interface LineRounding extends PolicyBase {
+    readonly taxRounding: "line";
+    readonly pricesIncludeTax: false | "extract";
 }
 
 export interface ComputedAdjustment {
@@ -167,7 +191,11 @@ export interface Totals {
 
 export interface ComputedInvoice {
     policy: Policy;
+    /** The library version that computed it. */
+    core: string;
     currency: string;
+    /** Decimal places of every amount: the currency's ISO 4217 minor unit when computed. */
+    scale: number;
     lines: ComputedLine[];
     allowances: ComputedDocumentAdjustment[];
     charges: ComputedDocumentAdjustment[];

@@ -1,10 +1,12 @@
 import type { CountryPack } from "../pack.ts";
 
+const HALF_UP = { amounts: "half-away-from-zero", tax: "half-away-from-zero" } as const;
+
 /** EN 16931 with the UNCL5305 categories. */
 export const eu: CountryPack = {
     id: "EU",
     policies: {
-        en16931: { id: "en16931@1", taxRounding: "document", mode: "half-away-from-zero", pricesIncludeTax: false },
+        en16931: { id: "en16931@1", taxRounding: "document", rounding: HALF_UP, pricesIncludeTax: false },
     },
     taxCategories: {
         S: { label: "Standard rate", levies: true },

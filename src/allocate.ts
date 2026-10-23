@@ -6,6 +6,9 @@ import { Decimal } from "./decimal.ts";
  * the earlier weight. Weights may be negative, as on a correction line.
  */
 export function allocate(total: Decimal, weights: readonly Decimal[], scale: number): Decimal[] {
+    if (!total.round(scale, "toward-zero").eq(total)) {
+        throw new RangeError(`cannot allocate ${total} in whole units of ${scale} decimals`);
+    }
     const sum = Decimal.sum(weights);
     if (sum.isZero()) {
         if (total.isZero()) return weights.map(() => Decimal.ZERO.round(scale, "toward-zero"));

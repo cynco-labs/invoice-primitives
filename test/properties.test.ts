@@ -29,7 +29,7 @@ const line = (scale: number, id: number): fc.Arbitrary<LineInput> =>
         baseQuantity: fc.option(fc.constantFrom("1", "10", "12.5"), { nil: undefined }),
         allowances: fc.array(
             fc.oneof(
-                decimal(0n, 50n, 0).map((percent) => ({ percent })),
+                fc.record({ percent: decimal(0n, 50n, 0), base: decimal(0n, 10n ** BigInt(scale + 4), scale) }),
                 decimal(0n, 10n ** BigInt(scale + 2), scale).map((amount) => ({ amount })),
             ),
             { maxLength: 2 },
@@ -57,18 +57,35 @@ const invoice = (currencies: string[], withDocumentAdjustments: boolean) =>
         }) as fc.Arbitrary<InvoiceInput>;
     });
 
-const policy = (pricesIncludeTax: Policy["pricesIncludeTax"]) =>
+const policy = (pricesIncludeTax: false | "extract" | "reconcile") =>
     fc.record({
-        taxRounding: fc.constantFrom("document" as const, "line" as const),
-        mode: fc.constantFrom(...MODES),
-    }).map((p): Policy => ({ id: "prop@1", pricesIncludeTax, ...p }));
+        line: fc.boolean(),
+        amounts: fc.constantFrom(...MODES),
+        tax: fc.constantFrom(...MODES),
+    }).map(({ line, amounts, tax }): Policy =>
+        line && pricesIncludeTax !== "reconcile"
+            ? { id: "prop@1", taxRounding: "line", rounding: { amounts, tax }, pricesIncludeTax }
+            : { id: "prop@1", taxRounding: "document", rounding: { amounts, tax }, pricesIncludeTax },
+    );
+
+/** Appends the return of some lines (quantity negated), so groups can net to zero. */
+const withReturns = (arb: fc.Arbitrary<InvoiceInput>) =>
+    arb.chain((input) =>
+        fc.subarray([...input.lines]).map((returned) => ({
+            ...input,
+            lines: [
+                ...input.lines,
+                ...returned.map((l) => ({ ...l, id: `${l.id}-return`, quantity: dec(l.quantity).neg().toString() })),
+            ],
+        })),
+    );
 
 const RUNS = { numRuns: 2000 };
 
 describe("properties", () => {
     it("tax-exclusive invoices always satisfy BR-CO-10..17 and the per-category taxable amounts", () => {
         fc.assert(
-            fc.property(invoice(["MYR", "JPY", "KWD", "EUR"], true), policy(false), (input, p) => {
+            fc.property(withReturns(invoice(["MYR", "JPY", "KWD", "EUR"], true)), policy(false), (input, p) => {
                 expect(verify(compute(input, p))).toEqual([]);
             }),
             RUNS,
@@ -93,9 +110,14 @@ describe("properties", () => {
 
     it.each(["extract", "reconcile"] as const)("tax-inclusive (%s): the amount due is the sum of shelf prices", (mode) => {
         fc.assert(
-            fc.property(invoice(["MYR", "JPY", "KWD"], false), policy(mode), (input, p) => {
+            fc.property(withReturns(invoice(["MYR", "JPY", "KWD"], false)), policy(mode), (input, p) => {
                 const out = compute(input, p);
                 expect(verify(out)).toEqual([]);
+                for (const l of out.lines) {
+                    const shelf = l.gross.add(Decimal.sum(l.charges.map((c) => c.amount))).sub(Decimal.sum(l.allowances.map((a) => a.amount)));
+                    // A net never takes the opposite sign of the line's shelf amount, beyond a few units of rounding.
+                    expect(l.net.sign() * shelf.sign() >= 0 || l.net.abs().coef <= 3n).toBe(true);
+                }
                 expect(out.totals.payable.eq(Decimal.sum(out.lines.map((l) => l.gross)).sub(sumAdjustments(out)))).toBe(true);
             }),
             RUNS,
@@ -107,7 +129,7 @@ describe("properties", () => {
             fc.property(invoice(["MYR", "KWD"], true), policy(false), (input, p) => {
                 expect(JSON.stringify(compute(input, p))).toBe(JSON.stringify(compute(structuredClone(input), p)));
             }),
-            { numRuns: 300 },
+            RUNS,
         );
     });
 

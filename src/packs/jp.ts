@@ -4,21 +4,25 @@ import type { Policy } from "../model.ts";
 
 /**
  * Japan's qualified invoice system: consumption tax rounded once per rate per
- * invoice. The business chooses how fractions of a yen round, so the policy
- * takes the mode and names it in its id.
+ * invoice. The business chooses how fractions of a yen of tax round, so the
+ * policy takes that mode and names it in its id. Other amounts round half up.
  */
-export function jpPolicy(mode: RoundingMode, inclusive = false): Policy {
+export function jpPolicy(taxMode: RoundingMode, inclusive = false): Policy {
     return {
-        id: `jp-qualified@1/${mode}${inclusive ? "/inclusive" : ""}`,
+        id: `jp-qualified@1/${taxMode}${inclusive ? "/inclusive" : ""}`,
         taxRounding: "document",
-        mode,
+        rounding: { amounts: "half-away-from-zero", tax: taxMode },
         pricesIncludeTax: inclusive && "extract",
     };
 }
 
+/**
+ * 切り捨て (rounding down) is read as truncation toward zero: the same as floor
+ * on a sale, and it keeps a return's tax symmetric. An assumption, not sourced.
+ */
 export const jp: CountryPack = {
     id: "JP",
-    policies: { floor: jpPolicy("floor"), floorInclusive: jpPolicy("floor", true) },
+    policies: { truncate: jpPolicy("toward-zero"), truncateInclusive: jpPolicy("toward-zero", true) },
     taxCategories: {
         S: { label: "Standard rate (10%)", levies: true },
         AA: { label: "Reduced rate (8%)", levies: true },

@@ -12,7 +12,9 @@
     "gen:currencies": "node scripts/gen-currencies.mjs",
     "corpus": "node scripts/fetch-corpus.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "mutate": "node scripts/mutate.mjs",
+    "bench": "node scripts/bench.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

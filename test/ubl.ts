@@ -35,8 +35,9 @@ const tax = (cat: unknown): TaxInput => ({
     ...opt("rate", text(cat, "Percent")),
 });
 
+/** UBL requires cbc:Amount on every AllowanceCharge. */
 const adjustment = (ac: Node) => ({
-    ...opt("amount", text(ac, "Amount")),
+    amount: text(ac, "Amount") ?? "0",
     ...opt("base", text(ac, "BaseAmount")),
     ...opt("percent", text(ac, "MultiplierFactorNumeric")),
     ...opt("reason", text(ac, "AllowanceChargeReason")),

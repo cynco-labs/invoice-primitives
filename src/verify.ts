@@ -1,11 +1,21 @@
 /**
- * The EN 16931 calculation rules (BR-CO-*) as checks on a computed invoice.
- * `compute` must never produce a result that fails them; the property tests
- * hold it to that, and `issue` refuses one that does.
+ * The calculation rules as checks on a computed invoice. `compute` must never
+ * produce a result that fails them; the property tests hold it to that, and
+ * `issue` refuses one that does.
+ *
+ * A check carries an EN 16931 rule id only when it is that rule. BR-CO-17 is
+ * checked under document rounding with the norm's mode (half away from zero);
+ * other modes are checked against the policy and named `policy-tax-rounding`.
+ * Under line rounding or "extract" pricing the per-category tax is not
+ * recomputable from the subtotal, so it is not checked: such a result is
+ * consistent, but not proof of EN 16931 arithmetic.
  */
 import { Decimal, dec } from "./decimal.ts";
-import { minorUnits, taxKey } from "./compute.ts";
+import { taxKey } from "./compute.ts";
 import type { ComputedInvoice } from "./model.ts";
+
+/** UNCL5305 categories EN 16931 writes a BR-<category>-08 rule for. */
+const EN_CATEGORIES = new Set(["S", "Z", "E", "AE", "K", "G", "O", "L", "M"]);
 
 export interface Violation {
     rule: string;
@@ -16,7 +26,7 @@ export interface Violation {
 
 export function verify(invoice: ComputedInvoice): Violation[] {
     const { totals: t, policy } = invoice;
-    const scale = minorUnits(invoice.currency);
+    const { scale } = invoice;
     const out: Violation[] = [];
     const check = (rule: string, message: string, expected: Decimal, actual: Decimal) => {
         if (!expected.eq(actual)) out.push({ rule, message, expected: expected.toString(), actual: actual.toString() });
@@ -45,15 +55,17 @@ export function verify(invoice: ComputedInvoice): Violation[] {
                 ...(sub.rate && { rate: sub.rate.toString() }),
                 ...(sub.perUnit && { perUnit: sub.perUnit.toString() }),
             });
-            check("BR-x-08", `taxable amount of ${sub.category} ${sub.rate ?? ""}`.trim(), taxable.get(key) ?? Decimal.ZERO, sub.taxable);
+            const rule = EN_CATEGORIES.has(sub.category) ? `BR-${sub.category}-08` : "taxable-by-category";
+            check(rule, `taxable amount of ${sub.category} ${sub.rate ?? ""}`.trim(), taxable.get(key) ?? Decimal.ZERO, sub.taxable);
         }
     }
 
     if (policy.taxRounding === "document" && policy.pricesIncludeTax !== "extract") {
+        const rule = policy.rounding.tax === "half-away-from-zero" ? "BR-CO-17" : "policy-tax-rounding";
         for (const sub of invoice.taxes) {
             if (!sub.rate) continue;
-            const expected = sub.taxable.mul(sub.rate).div(dec("100"), scale, policy.mode);
-            check("BR-CO-17", `tax of ${sub.category} ${sub.rate}% on its taxable amount`, expected, sub.tax);
+            const expected = sub.taxable.mul(sub.rate).div(dec("100"), scale, policy.rounding.tax);
+            check(rule, `tax of ${sub.category} ${sub.rate}% on its taxable amount`, expected, sub.tax);
         }
     }
     return out;

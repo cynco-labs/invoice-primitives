@@ -1,0 +1,49 @@
+{
+  "mixed": {
+    "lines": [
+      [
+        "1",
+        "94"
+      ],
+      [
+        "2",
+        "25"
+      ],
+      [
+        "3",
+        "-31"
+      ],
+      [
+        "4",
+        "0"
+      ]
+    ],
+    "taxes": [
+      {
+        "scheme": "VAT",
+        "category": "AA",
+        "rate": "8",
+        "taxable": "63",
+        "tax": "4"
+      },
+      {
+        "scheme": "VAT",
+        "category": "S",
+        "rate": "10",
+        "taxable": "25",
+        "tax": "2"
+      }
+    ],
+    "totals": {
+      "lineNet": "88",
+      "allowances": "0",
+      "charges": "0",
+      "taxExclusive": "88",
+      "tax": "6",
+      "taxInclusive": "94",
+      "prepaid": "0",
+      "rounding": "0",
+      "payable": "94"
+    }
+  }
+}

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { dec, Decimal } from "../src/decimal.ts";
 import { diffFile } from "../scripts/corpus-report.ts";
+import type { Adjustment } from "../src/model.ts";
 import { readUbl } from "./ubl.ts";
 
 const dir = fileURLToPath(new URL("../corpus/", import.meta.url));
@@ -12,7 +13,7 @@ const files = existsSync(dir) ? readdirSync(dir).sort() : [];
 function statesLineArithmetic(path: string): boolean {
     const { input, stated } = readUbl(readFileSync(path, "utf8"));
     return input.lines.every((l, i) => {
-        const sum = (xs: readonly { amount?: string }[] | undefined) => Decimal.sum((xs ?? []).map((x) => dec(x.amount ?? "0")));
+        const sum = (xs: readonly Adjustment[] | undefined) => Decimal.sum((xs ?? []).map((x) => dec(x.amount ?? "0")));
         const net = dec(l.quantity)
             .mul(dec(l.price))
             .div(dec(l.baseQuantity ?? "1"), 2, "half-away-from-zero")

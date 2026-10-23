@@ -50,11 +50,13 @@ export function draft(kind: DocumentKind, input: InvoiceInput, corrects?: string
     return { state: "draft", kind, input, ...(corrects && { corrects }) };
 }
 
+/** Freezes a copy: the caller's draft, input and policy stay theirs to reuse. */
 export function issue(d: Draft, policy: Policy, at: { number: string; issueDate: string }): Issued {
-    const computed = compute(d.input, policy);
+    const input = structuredClone(d.input);
+    const computed = compute(input, policy);
     const violations = verify(computed);
     if (violations.length) throw new InvalidInvoiceError(violations);
-    return deepFreeze({ ...d, state: "issued", number: at.number, issueDate: at.issueDate, computed });
+    return deepFreeze({ ...d, input, state: "issued", number: at.number, issueDate: at.issueDate, computed });
 }
 
 export function voidInvoice(issued: Issued, reason: string, voidedAt: string): Voided {

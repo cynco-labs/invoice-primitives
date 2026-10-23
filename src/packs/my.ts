@@ -1,6 +1,7 @@
 import type { CountryPack } from "../pack.ts";
 
 const HOURS_72 = 72 * 60 * 60 * 1000;
+const HALF_UP = { amounts: "half-away-from-zero", tax: "half-away-from-zero" } as const;
 
 /**
  * Malaysia. Categories are PINT MY's (https://docs.peppol.eu/poac/my/pint-my/bis/).
@@ -12,11 +13,11 @@ const HOURS_72 = 72 * 60 * 60 * 1000;
 export const my: CountryPack = {
     id: "MY",
     policies: {
-        pint: { id: "my-pint@1", taxRounding: "document", mode: "half-away-from-zero", pricesIncludeTax: false },
+        pint: { id: "my-pint@1", taxRounding: "document", rounding: HALF_UP, pricesIncludeTax: false },
         pintCash: {
             id: "my-pint-cash@1",
             taxRounding: "document",
-            mode: "half-away-from-zero",
+            rounding: HALF_UP,
             pricesIncludeTax: false,
             cashIncrement: "0.05",
         },
