@@ -23,8 +23,9 @@
 import { compute, minorUnits } from "../calc/compute.ts";
 import { verify } from "../calc/verify.ts";
 import { InvoiceError } from "../errors.ts";
+import { isObject } from "../json.ts";
 import { dec } from "../money/decimal.ts";
-import type { Registry } from "../pack.ts";
+import { canVoid, failedRules, type Registry } from "../pack.ts";
 import { balance } from "./balance.ts";
 import { addDays, daysBetween, isDate, localDate } from "./dates.ts";
 import { toFigures } from "./figures.ts";
@@ -131,7 +132,7 @@ export function decide(state: DocumentState | undefined, command: Command, ctx: 
             if (doc.settlements.some((s) => !s.reversed)) {
                 throw new InvoiceError("has-settlements", "", "reverse its settlements before voiding; or issue a credit note");
             }
-            const decision = ctx.registry.resolve(doc.data.policy).pack.canVoid(doc, ctx.now, {});
+            const decision = canVoid(ctx.registry.resolve(doc.data.policy).pack.voiding, ctx.now);
             if (!decision.allowed) throw new InvoiceError("void-not-allowed", "", decision.reason);
             return [{ type: "voided", reason: command.reason, at: ctx.now }];
         }
@@ -279,7 +280,7 @@ function issue(data: DraftData, number: string, ctx: Context): DocumentEvent {
             : new InvoiceError("unsupported", "data.lines", "an invoice with a negative total; credit the original invoice instead");
     }
     const figures = toFigures(computed);
-    const failed = pack.rules.filter((r) => !r.check({ data, figures }));
+    const failed = failedRules(pack.rules, { data, figures });
     if (failed.length) throw new InvoiceError("rule-failed", "", failed.map((r) => `${r.id}: ${r.message}`).join("; "));
     return { type: "issued", number, issueDate, dueDate, figures };
 }
@@ -341,10 +342,10 @@ function money(value: string, scale: number, path: string) {
 }
 
 /** JSON with sorted keys and undefined dropped: equal for equal data, whatever the key order. */
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
     return JSON.stringify(value, (_key, v: unknown) =>
-        v && typeof v === "object" && !Array.isArray(v)
-            ? Object.fromEntries(Object.entries(v as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+        isObject(v)
+            ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
             : v,
     );
 }

@@ -39,5 +39,5 @@ export const jp: CountryPack = {
         exempt: { label: "Exempt", taxes: [{ category: "E" }], source: JP_RATES, checked: "2026-10-23" },
         "outside-scope": { label: "Outside the scope of tax", taxes: [{ category: "O" }], source: JP_RATES, checked: "2026-10-23" },
     },
-    canVoid: () => ({ allowed: false, reason: "issue a return invoice (適格返還請求書)" }),
+    voiding: { allowed: false, reason: "issue a return invoice (適格返還請求書)" },
 };

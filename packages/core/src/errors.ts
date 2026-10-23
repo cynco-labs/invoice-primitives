@@ -28,6 +28,7 @@ export const INVOICE_ERROR_CODES = [
     "invalid-policy",
     "rounding-conflict",
     "unsupported",
+    "too-large",
 ] as const;
 
 export type InvoiceErrorCode = (typeof INVOICE_ERROR_CODES)[number];
@@ -35,6 +36,9 @@ export type InvoiceErrorCode = (typeof INVOICE_ERROR_CODES)[number];
 export function isInvoiceErrorCode(code: string): code is InvoiceErrorCode {
     return (INVOICE_ERROR_CODES as readonly string[]).includes(code);
 }
+
+/** A refusal as data, for a boundary that does not carry classes (a Convex function, an RPC call). */
+export type Refusal = { code: InvoiceErrorCode; path: string; detail: string };
 
 export class InvoiceError extends Error {
     override name = "InvoiceError";
@@ -48,6 +52,17 @@ export class InvoiceError extends Error {
         this.code = code;
         this.path = path;
         this.detail = detail;
+    }
+
+    toJSON(): Refusal {
+        return { code: this.code, path: this.path, detail: this.detail };
+    }
+
+    /** The refusal `data` carries, as an `InvoiceError`; undefined when it is not one. */
+    static from(data: unknown): InvoiceError | undefined {
+        if (typeof data !== "object" || data === null || !("code" in data && "path" in data && "detail" in data)) return undefined;
+        const { code, path, detail } = data;
+        return typeof code === "string" && isInvoiceErrorCode(code) && typeof path === "string" && typeof detail === "string" ? new InvoiceError(code, path, detail) : undefined;
     }
 
     /** The same refusal, with its path nested under `prefix`. */

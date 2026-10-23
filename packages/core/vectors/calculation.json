@@ -1,0 +1,788 @@
+[
+  {
+    "name": "mixed rates, a return and a percent allowance (PINT MY)",
+    "policy": {
+      "id": "my-pint@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "MYR",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "3",
+          "price": "33.33",
+          "taxes": [
+            {
+              "category": "SA",
+              "rate": "8"
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "quantity": "1.5",
+          "price": "19.99",
+          "allowances": [
+            {
+              "percent": "10",
+              "base": "29.99"
+            }
+          ],
+          "taxes": [
+            {
+              "category": "SE",
+              "rate": "10"
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "quantity": "-1",
+          "price": "33.33",
+          "taxes": [
+            {
+              "category": "SA",
+              "rate": "8"
+            }
+          ]
+        },
+        {
+          "id": "4",
+          "quantity": "7",
+          "price": "0.07",
+          "taxes": [
+            {
+              "category": "SA",
+              "rate": "8"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "99.99"
+        ],
+        [
+          "2",
+          "26.99"
+        ],
+        [
+          "3",
+          "-33.33"
+        ],
+        [
+          "4",
+          "0.49"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "SA",
+          "rate": "8",
+          "taxable": "67.15",
+          "tax": "5.37"
+        },
+        {
+          "scheme": "VAT",
+          "category": "SE",
+          "rate": "10",
+          "taxable": "26.99",
+          "tax": "2.70"
+        }
+      ],
+      "totals": {
+        "lineNet": "94.14",
+        "allowances": "0.00",
+        "charges": "0.00",
+        "taxExclusive": "94.14",
+        "tax": "8.07",
+        "taxInclusive": "102.21",
+        "prepaid": "0.00",
+        "rounding": "0.00",
+        "payable": "102.21"
+      }
+    }
+  },
+  {
+    "name": "a document discount taxed by its category",
+    "policy": {
+      "id": "my-pint@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "MYR",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "1000.00",
+          "taxes": [
+            {
+              "category": "SA",
+              "rate": "8"
+            }
+          ]
+        }
+      ],
+      "allowances": [
+        {
+          "amount": "100.00",
+          "taxes": [
+            {
+              "category": "SA",
+              "rate": "8"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "1000.00"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "SA",
+          "rate": "8",
+          "taxable": "900.00",
+          "tax": "72.00"
+        }
+      ],
+      "totals": {
+        "lineNet": "1000.00",
+        "allowances": "100.00",
+        "charges": "0.00",
+        "taxExclusive": "900.00",
+        "tax": "72.00",
+        "taxInclusive": "972.00",
+        "prepaid": "0.00",
+        "rounding": "0.00",
+        "payable": "972.00"
+      }
+    }
+  },
+  {
+    "name": "cash rounding to 5 sen, recorded in BT-114",
+    "policy": {
+      "id": "my-pint-cash@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false,
+      "cashIncrement": "0.05"
+    },
+    "input": {
+      "currency": "MYR",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "10.02",
+          "taxes": [
+            {
+              "category": "E"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "10.02"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "E",
+          "taxable": "10.02",
+          "tax": "0.00"
+        }
+      ],
+      "totals": {
+        "lineNet": "10.02",
+        "allowances": "0.00",
+        "charges": "0.00",
+        "taxExclusive": "10.02",
+        "tax": "0.00",
+        "taxInclusive": "10.02",
+        "prepaid": "0.00",
+        "rounding": "-0.02",
+        "payable": "10.00"
+      }
+    }
+  },
+  {
+    "name": "tourism tax: a fixed amount per room per night",
+    "policy": {
+      "id": "my-pint@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "MYR",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "3",
+          "price": "200.00",
+          "taxes": [
+            {
+              "category": "SE",
+              "rate": "8"
+            },
+            {
+              "category": "TTX",
+              "perUnit": "10.00"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "600.00"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "SE",
+          "rate": "8",
+          "taxable": "600.00",
+          "tax": "48.00"
+        },
+        {
+          "scheme": "VAT",
+          "category": "TTX",
+          "perUnit": "10.00",
+          "taxable": "600.00",
+          "tax": "30.00"
+        }
+      ],
+      "totals": {
+        "lineNet": "600.00",
+        "allowances": "0.00",
+        "charges": "0.00",
+        "taxExclusive": "600.00",
+        "tax": "78.00",
+        "taxInclusive": "678.00",
+        "prepaid": "0.00",
+        "rounding": "0.00",
+        "payable": "678.00"
+      }
+    }
+  },
+  {
+    "name": "tax rounded once per category, not per line (EN 16931)",
+    "policy": {
+      "id": "en16931@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "EUR",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "0.10",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "25"
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "quantity": "1",
+          "price": "0.10",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "25"
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "quantity": "1",
+          "price": "0.10",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "25"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "0.10"
+        ],
+        [
+          "2",
+          "0.10"
+        ],
+        [
+          "3",
+          "0.10"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "S",
+          "rate": "25",
+          "taxable": "0.30",
+          "tax": "0.08"
+        }
+      ],
+      "totals": {
+        "lineNet": "0.30",
+        "allowances": "0.00",
+        "charges": "0.00",
+        "taxExclusive": "0.30",
+        "tax": "0.08",
+        "taxInclusive": "0.38",
+        "prepaid": "0.00",
+        "rounding": "0.00",
+        "payable": "0.38"
+      }
+    }
+  },
+  {
+    "name": "tax rounded per line",
+    "policy": {
+      "id": "vector-line@1",
+      "taxRounding": "line",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "EUR",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "0.10",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "25"
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "quantity": "1",
+          "price": "0.10",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "25"
+            }
+          ]
+        },
+        {
+          "id": "3",
+          "quantity": "1",
+          "price": "0.10",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "25"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "0.10"
+        ],
+        [
+          "2",
+          "0.10"
+        ],
+        [
+          "3",
+          "0.10"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "S",
+          "rate": "25",
+          "taxable": "0.30",
+          "tax": "0.09"
+        }
+      ],
+      "totals": {
+        "lineNet": "0.30",
+        "allowances": "0.00",
+        "charges": "0.00",
+        "taxExclusive": "0.30",
+        "tax": "0.09",
+        "taxInclusive": "0.39",
+        "prepaid": "0.00",
+        "rounding": "0.00",
+        "payable": "0.39"
+      }
+    }
+  },
+  {
+    "name": "Japan: tax-inclusive ¥333 at 10%, fractions truncated once per rate",
+    "policy": {
+      "id": "jp-qualified@1/toward-zero/inclusive",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "toward-zero"
+      },
+      "pricesIncludeTax": "extract"
+    },
+    "input": {
+      "currency": "JPY",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "333",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "10"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "303"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "S",
+          "rate": "10",
+          "taxable": "303",
+          "tax": "30"
+        }
+      ],
+      "totals": {
+        "lineNet": "303",
+        "allowances": "0",
+        "charges": "0",
+        "taxExclusive": "303",
+        "tax": "30",
+        "taxInclusive": "333",
+        "prepaid": "0",
+        "rounding": "0",
+        "payable": "333"
+      }
+    }
+  },
+  {
+    "name": "Japan: reduced and standard rates in separate buckets",
+    "policy": {
+      "id": "jp-qualified@1/toward-zero",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "toward-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "JPY",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "3",
+          "price": "108",
+          "taxes": [
+            {
+              "category": "AA",
+              "rate": "8"
+            }
+          ]
+        },
+        {
+          "id": "2",
+          "quantity": "1",
+          "price": "1099",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "10"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "324"
+        ],
+        [
+          "2",
+          "1099"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "AA",
+          "rate": "8",
+          "taxable": "324",
+          "tax": "25"
+        },
+        {
+          "scheme": "VAT",
+          "category": "S",
+          "rate": "10",
+          "taxable": "1099",
+          "tax": "109"
+        }
+      ],
+      "totals": {
+        "lineNet": "1423",
+        "allowances": "0",
+        "charges": "0",
+        "taxExclusive": "1423",
+        "tax": "134",
+        "taxInclusive": "1557",
+        "prepaid": "0",
+        "rounding": "0",
+        "payable": "1557"
+      }
+    }
+  },
+  {
+    "name": "inclusive prices reconciled to BR-CO-17, the residual in BT-114",
+    "policy": {
+      "id": "vector-reconcile@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "floor"
+      },
+      "pricesIncludeTax": "reconcile"
+    },
+    "input": {
+      "currency": "JPY",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "1099",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "10"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "1000"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "S",
+          "rate": "10",
+          "taxable": "1000",
+          "tax": "100"
+        }
+      ],
+      "totals": {
+        "lineNet": "1000",
+        "allowances": "0",
+        "charges": "0",
+        "taxExclusive": "1000",
+        "tax": "100",
+        "taxInclusive": "1100",
+        "prepaid": "0",
+        "rounding": "-1",
+        "payable": "1099"
+      }
+    }
+  },
+  {
+    "name": "Kuwaiti dinar: three decimals",
+    "policy": {
+      "id": "en16931@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "KWD",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "3",
+          "price": "1.2345",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "5"
+            }
+          ]
+        }
+      ]
+    },
+    "output": {
+      "lines": [
+        [
+          "1",
+          "3.704"
+        ]
+      ],
+      "taxes": [
+        {
+          "scheme": "VAT",
+          "category": "S",
+          "rate": "5",
+          "taxable": "3.704",
+          "tax": "0.185"
+        }
+      ],
+      "totals": {
+        "lineNet": "3.704",
+        "allowances": "0.000",
+        "charges": "0.000",
+        "taxExclusive": "3.704",
+        "tax": "0.185",
+        "taxInclusive": "3.889",
+        "prepaid": "0.000",
+        "rounding": "0.000",
+        "payable": "3.889"
+      }
+    }
+  },
+  {
+    "name": "refused: an amount with more decimals than the currency",
+    "policy": {
+      "id": "en16931@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "EUR",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "1.00",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "20"
+            }
+          ]
+        }
+      ],
+      "prepaid": "0.001"
+    },
+    "refused": {
+      "code": "too-many-decimals",
+      "path": "prepaid"
+    }
+  },
+  {
+    "name": "refused: an unknown currency",
+    "policy": {
+      "id": "en16931@1",
+      "taxRounding": "document",
+      "rounding": {
+        "amounts": "half-away-from-zero",
+        "tax": "half-away-from-zero"
+      },
+      "pricesIncludeTax": false
+    },
+    "input": {
+      "currency": "ABC",
+      "lines": [
+        {
+          "id": "1",
+          "quantity": "1",
+          "price": "1.00",
+          "taxes": [
+            {
+              "category": "S",
+              "rate": "20"
+            }
+          ]
+        }
+      ]
+    },
+    "refused": {
+      "code": "unknown-currency",
+      "path": "currency"
+    }
+  }
+]

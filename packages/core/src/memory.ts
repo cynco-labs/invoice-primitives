@@ -1,119 +1,108 @@
 /**
- * The reference backend: books in memory. Small enough to read in one sitting,
- * and the pattern every other backend follows:
- *
- *   in one transaction: load the state → (allocate a number) → execute → save state and events
+ * The reference store: one tenant's books in memory. Small enough to read in
+ * one sitting, and the shape every other store follows. Transactions run one
+ * at a time; a throw restores everything as it was.
  */
-import { checkPage, type Books, type StoredEvent } from "./books.ts";
-import { creditInvoice, creditNoteData } from "./document/credit.ts";
-import { execute, numberingFor, type Context } from "./document/execute.ts";
-import { checkSettings, contextFor, expand, type Settings } from "./document/input.ts";
-import { createRegistry, type Registry } from "./pack.ts";
-import { bundledPacks } from "./packs/index.ts";
-import type { Command, DocumentEvent, DocumentState } from "./document/types.ts";
-import { InvoiceError } from "./errors.ts";
-import { newId } from "./id.ts";
+import { createBooks, type Books, type BooksOptions, type StoredEvent } from "./books.ts";
+import { checkSettings, type Settings } from "./document/input.ts";
+import type { DocumentState } from "./document/types.ts";
+import { copyJson } from "./json.ts";
+import { registryFor } from "./pack.ts";
+import type { ListingRow, Reader, Store, Transaction } from "./store.ts";
 
-export interface BooksConfig extends Settings {
-    /** The country packs. Defaults to the bundled ones. */
-    registry?: Registry;
-    /** The clock; tests pin it. */
-    now?: () => string;
+export interface BooksConfig extends Settings, BooksOptions {}
+
+/** Books in memory, configured with `config`'s settings. */
+export function createMemoryBooks(config: BooksConfig = {}): Books {
+    const { packs, now, ...settings } = config;
+    return createBooks(memoryStore(checkSettings(settings, registryFor(packs))), { packs, now });
 }
 
-export function createMemoryBooks(config: BooksConfig = {}): Books {
-    const { registry = createRegistry(bundledPacks), now, ...initial } = config;
-    let docs = new Map<string, DocumentState>();
-    let sequences = new Map<string, number>();
-    let numbers = new Map<string, string>();
+export function memoryStore(settings: Settings = {}): Store {
+    let current: Settings = copyJson(settings);
+    const docs = new Map<string, DocumentState>();
+    const listings = new Map<string, ListingRow>();
+    const sequences = new Map<string, number>();
+    const numbers = new Map<string, string>();
     const log: StoredEvent[] = [];
-    checkSettings(initial, registry);
-    let settings: Settings = initial;
+    /** The open transaction's undo steps, newest last. */
+    let journal: (() => void)[] | undefined;
+    let queue: Promise<unknown> = Promise.resolve();
 
-    const context = (): Context => contextFor(settings, registry, now?.() ?? new Date().toISOString());
-
-    /** Runs `fn` atomically: on a throw, documents, sequences and the log are as they were. */
-    const transaction = async <T>(fn: (ctx: Context) => T): Promise<T> => {
-        const saved = { docs: new Map(docs), sequences: new Map(sequences), numbers: new Map(numbers), length: log.length };
-        try {
-            return fn(context());
-        } catch (e) {
-            docs = saved.docs;
-            sequences = saved.sequences;
-            numbers = saved.numbers;
-            log.length = saved.length;
-            throw e;
-        }
+    /** Runs `work` after every earlier transaction has finished. */
+    const serial = <T>(work: () => Promise<T>): Promise<T> => {
+        const result = queue.then(work);
+        queue = result.catch(() => undefined);
+        return result;
     };
 
-    const next = (series: string) => {
-        const n = (sequences.get(series) ?? 0) + 1;
-        sequences.set(series, n);
-        return n;
+    const put = <K, V>(map: Map<K, V>, key: K, value: V) => {
+        const had = map.has(key);
+        const before = map.get(key);
+        journal?.push(() => (had ? map.set(key, before!) : map.delete(key)));
+        map.set(key, value);
     };
 
-    const save = (ctx: Context, before: DocumentState | undefined, state: DocumentState | undefined, events: DocumentEvent[]) => {
-        if (!state || events.length === 0) return;
-        if (docs.get(state.id) !== before) throw new Error(`document ${state.id} changed during the transaction`);
-        if ("number" in state && numbers.get(state.number) !== state.id) {
-            if (numbers.has(state.number)) throw new InvoiceError("duplicate-number", "number", `number ${state.number} is taken`);
-            numbers.set(state.number, state.id);
-        }
-        docs.set(state.id, state);
-        events.forEach((event, i) =>
-            log.push({ position: log.length + 1, documentId: state.id, version: state.version - events.length + i + 1, at: ctx.now, event }),
-        );
+    const reader: Reader = {
+        settings: async () => copyJson(current),
+        load: async (id) => {
+            const doc = docs.get(id);
+            return doc && copyJson(doc);
+        },
+        // Listings are inserted in seq order, so newest first is the map backwards.
+        *scan(filter) {
+            for (const row of [...listings.values()].reverse()) if (filter.before === undefined || row.seq < filter.before) yield row;
+        },
+        events: async (after, limit) => copyJson(log.slice(after, after + limit)),
+        holder: async (number) => numbers.get(number),
+        documents: async (after, limit) =>
+            [...docs.keys()]
+                .filter((id) => after === undefined || id > after)
+                .sort()
+                .slice(0, limit)
+                .map((id) => copyJson(docs.get(id)!)),
     };
 
-    const run = (id: string, command: Command | ((ctx: Context) => Command)) =>
-        transaction((ctx) => {
-            const before = docs.get(id);
-            const { state, events } = execute(before, typeof command === "function" ? command(ctx) : command, ctx);
-            save(ctx, before, state, events);
-            if (!state) throw new InvoiceError("not-found", "id", `no document ${id}`);
-            return state;
-        });
+    const tx: Transaction = {
+        ...reader,
+        saveSettings: async (next) => {
+            const before = current;
+            journal?.push(() => (current = before));
+            current = copyJson(next);
+        },
+        next: async (series) => {
+            const n = (sequences.get(series) ?? 0) + 1;
+            put(sequences, series, n);
+            return n;
+        },
+        head: async () => log.length,
+        write: async ({ state, expected, listing, events }) => {
+            if (docs.get(state.id)?.version !== expected) throw new Error(`document ${state.id} changed during the transaction`);
+            put(docs, state.id, copyJson(state));
+            if ("number" in state) put(numbers, state.number, state.id);
+            put(listings, state.id, { ...listing, id: state.id, seq: listings.get(state.id)?.seq ?? events[0]!.position });
+            const length = log.length;
+            journal?.push(() => (log.length = length));
+            log.push(...copyJson(events));
+        },
+        relist: async (id, listing) => {
+            put(listings, id, { ...listing, id, seq: listings.get(id)!.seq });
+        },
+    };
 
     return {
-        configure: async (next) => {
-            checkSettings(next, registry);
-            settings = { ...settings, ...next };
-        },
-        create: (document) => {
-            const id = document.id ?? newId();
-            return run(id, (ctx) => ({ type: "create", id, data: expand(document, ctx) }));
-        },
-        update: (id, document) => run(id, (ctx) => ({ type: "update", data: expand(document, ctx) })),
-        discard: (id) => run(id, { type: "discard" }),
-        issue: (id) =>
-            transaction((ctx) => {
-                const before = docs.get(id);
-                const plan = before?.status === "draft" ? numberingFor(before.data, ctx) : undefined;
-                const { state, events } = execute(before, { type: "issue", number: plan ? plan.format(next(plan.series)) : "" }, ctx);
-                save(ctx, before, state, events);
-                return state!;
+        read: (work) => serial(() => work(reader)),
+        transaction: (work) =>
+            serial(async () => {
+                journal = [];
+                try {
+                    return await work(tx);
+                } catch (e) {
+                    for (const undo of journal.reverse()) undo();
+                    throw e;
+                } finally {
+                    journal = undefined;
+                }
             }),
-        void: (id, reason) => run(id, { type: "void", reason }),
-        settle: (id, settlement) => run(id, { type: "settle", settlement }),
-        reverseSettlement: (id, settlementId, reason) => run(id, { type: "reverse-settlement", settlementId, reason }),
-        requestDelivery: (id, delivery) => run(id, { type: "request-delivery", delivery }),
-        completeDelivery: (id, deliveryId, status, detail) =>
-            run(id, { type: "complete-delivery", deliveryId, status, ...(detail !== undefined && { detail }) }),
-        credit: (invoiceId, note) =>
-            transaction((ctx) => {
-                const invoice = docs.get(invoiceId);
-                const existing = docs.get(note.id);
-                const plan = invoice?.status === "issued" && !existing ? numberingFor(creditNoteData(invoice, note.input, ctx), ctx) : undefined;
-                const number = plan ? plan.format(next(plan.series)) : "";
-                const result = creditInvoice(invoice, existing, { ...note, number }, ctx);
-                save(ctx, invoice, result.invoice.state, result.invoice.events);
-                save(ctx, existing, result.note.state, result.note.events);
-                return { invoice: result.invoice.state, note: result.note.state };
-            }),
-        get: async (id) => docs.get(id),
-        events: async (after, limit) => {
-            const page = checkPage(after, limit);
-            return log.slice(page.after, page.after + page.limit);
-        },
     };
 }

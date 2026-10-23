@@ -1,0 +1,2087 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/cynco-labs/invoice-primitives/schema/invoice-primitives.schema.json",
+  "$defs": {
+    "DocumentKind": {
+      "description": "An invoice, or a credit note correcting one.",
+      "anyOf": [
+        {
+          "const": "invoice"
+        },
+        {
+          "const": "credit-note"
+        }
+      ]
+    },
+    "Stage": {
+      "description": "Where a document stands, as a list shows it.",
+      "anyOf": [
+        {
+          "const": "draft"
+        },
+        {
+          "const": "open"
+        },
+        {
+          "const": "settled"
+        },
+        {
+          "const": "void"
+        },
+        {
+          "const": "discarded"
+        }
+      ]
+    },
+    "Listing": {
+      "description": "The fields a store indexes for `list`, derived from a document's state on every save.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/DocumentKind"
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "customer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dueDate": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "stage"
+      ],
+      "additionalProperties": false
+    },
+    "TaxInput": {
+      "description": "One tax a line or adjustment bears (BG-30, BT-151, BT-152).",
+      "type": "object",
+      "properties": {
+        "scheme": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rate": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "perUnit": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "compound": {
+          "type": "boolean"
+        },
+        "exemptionReason": {
+          "type": "string"
+        },
+        "exemptionReasonCode": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "Adjustment": {
+      "description": "An allowance or charge: a stated amount, or a percent of a stated base. A stated amount wins; its percent and base are then recorded, not checked. Under tax-inclusive prices a line adjustment is tax-inclusive too.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "reasonCode": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "percent": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "base": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            }
+          },
+          "required": [
+            "amount"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "reasonCode": {
+              "type": "string"
+            },
+            "percent": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "base": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            }
+          },
+          "required": [
+            "percent",
+            "base"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DocumentAdjustment": {
+      "description": "A document-level allowance (BG-20) or charge (BG-21). EN 16931 requires its tax category (BT-95 / BT-102).",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "reasonCode": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "percent": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "base": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "taxes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TaxInput"
+              }
+            }
+          },
+          "required": [
+            "amount",
+            "taxes"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "reasonCode": {
+              "type": "string"
+            },
+            "percent": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "base": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "taxes": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TaxInput"
+              }
+            }
+          },
+          "required": [
+            "percent",
+            "base",
+            "taxes"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "LineInput": {
+      "description": "A line to calculate (BG-25).",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quantity": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "price": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "baseQuantity": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "allowances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Adjustment"
+          }
+        },
+        "charges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Adjustment"
+          }
+        },
+        "taxes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaxInput"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "quantity",
+        "price",
+        "taxes"
+      ],
+      "additionalProperties": false
+    },
+    "InvoiceInput": {
+      "description": "What `compute` calculates.",
+      "type": "object",
+      "properties": {
+        "currency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/LineInput"
+          }
+        },
+        "allowances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "charges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "prepaid": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "roundingAmount": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        }
+      },
+      "required": [
+        "currency",
+        "lines"
+      ],
+      "additionalProperties": false
+    },
+    "Line": {
+      "description": "A document line: a calculated line with its name.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quantity": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "price": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "baseQuantity": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "allowances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Adjustment"
+          }
+        },
+        "charges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Adjustment"
+          }
+        },
+        "taxes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaxInput"
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "quantity",
+        "price",
+        "taxes",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "NewLine": {
+      "description": "A line of a short document: its id defaults to its position, and it can name a tax instead of listing taxes.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quantity": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "price": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "baseQuantity": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "allowances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Adjustment"
+          }
+        },
+        "charges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Adjustment"
+          }
+        },
+        "taxes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaxInput"
+          }
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "description": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "tax": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "quantity",
+        "price",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "Address": {
+      "description": "A postal address (BG-5, BG-8).",
+      "type": "object",
+      "properties": {
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "city": {
+          "type": "string"
+        },
+        "postalCode": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "lines",
+        "country"
+      ],
+      "additionalProperties": false
+    },
+    "Party": {
+      "description": "A seller or buyer.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ids": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scheme": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "scheme",
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "email": {
+          "type": "string"
+        },
+        "address": {
+          "$ref": "#/$defs/Address"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "DraftData": {
+      "description": "What a draft says. Free to change until the document is issued.",
+      "type": "object",
+      "properties": {
+        "allowances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "charges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "issueDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "due": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "required": [
+                "date"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "days": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "days"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "buyerReference": {
+          "type": "string"
+        },
+        "orderReference": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "seller": {
+          "$ref": "#/$defs/Party"
+        },
+        "buyer": {
+          "$ref": "#/$defs/Party"
+        },
+        "customer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "corrects": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correctsNumber": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/DocumentKind"
+        },
+        "policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Line"
+          }
+        }
+      },
+      "required": [
+        "seller",
+        "buyer",
+        "kind",
+        "policy",
+        "currency",
+        "lines"
+      ],
+      "additionalProperties": false
+    },
+    "NewDocument": {
+      "description": "A document with only what changes per document. Everything else comes from the tenant's settings.",
+      "type": "object",
+      "properties": {
+        "allowances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "charges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "issueDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "due": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "required": [
+                "date"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "days": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "days"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "buyerReference": {
+          "type": "string"
+        },
+        "orderReference": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "seller": {
+          "$ref": "#/$defs/Party"
+        },
+        "buyer": {
+          "$ref": "#/$defs/Party"
+        },
+        "customer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "corrects": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correctsNumber": {
+          "type": "string",
+          "minLength": 1
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "$ref": "#/$defs/DocumentKind"
+        },
+        "policy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NewLine"
+          }
+        }
+      },
+      "required": [
+        "buyer",
+        "lines"
+      ],
+      "additionalProperties": false
+    },
+    "CreditNoteInput": {
+      "description": "What a credit note says of its own, in the same short form as `create`. The parties, currency and policy are the invoice's; lines carry positive quantities.",
+      "type": "object",
+      "properties": {
+        "allowances": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "charges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentAdjustment"
+          }
+        },
+        "issueDate": {
+          "type": "string",
+          "format": "date"
+        },
+        "due": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                }
+              },
+              "required": [
+                "date"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "days": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "days"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "buyerReference": {
+          "type": "string"
+        },
+        "orderReference": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/NewLine"
+          }
+        }
+      },
+      "required": [
+        "lines"
+      ],
+      "additionalProperties": false
+    },
+    "Numbering": {
+      "description": "How document numbers read, per kind. \"{yyyy}\" in a prefix is the issue year; each distinct prefix is its own sequence.",
+      "type": "object",
+      "properties": {
+        "invoice": {
+          "type": "object",
+          "properties": {
+            "prefix": {
+              "type": "string"
+            },
+            "digits": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            }
+          },
+          "required": [
+            "prefix",
+            "digits"
+          ],
+          "additionalProperties": false
+        },
+        "credit-note": {
+          "type": "object",
+          "properties": {
+            "prefix": {
+              "type": "string"
+            },
+            "digits": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            }
+          },
+          "required": [
+            "prefix",
+            "digits"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "invoice",
+        "credit-note"
+      ],
+      "additionalProperties": false
+    },
+    "Settings": {
+      "description": "A tenant's settings. Every backend stores them per tenant.",
+      "type": "object",
+      "properties": {
+        "country": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seller": {
+          "$ref": "#/$defs/Party"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "description": "An ISO 4217 currency code"
+        },
+        "timeZone": {
+          "type": "string",
+          "minLength": 1,
+          "description": "An IANA time zone"
+        },
+        "numbering": {
+          "$ref": "#/$defs/Numbering"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "NewSettlement": {
+      "description": "Money that settled part of an issued document, as a settle command states it.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "const": "payment"
+            },
+            {
+              "const": "credit"
+            },
+            {
+              "const": "write-off"
+            }
+          ]
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "reference": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "amount",
+        "date"
+      ],
+      "additionalProperties": false
+    },
+    "Settlement": {
+      "description": "Money that settled part of an issued document: a payment, a credit note, a write-off.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "const": "payment"
+            },
+            {
+              "const": "credit"
+            },
+            {
+              "const": "write-off"
+            }
+          ]
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "reference": {
+          "type": "string"
+        },
+        "reversed": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "amount",
+        "date"
+      ],
+      "additionalProperties": false
+    },
+    "DeliveryStatus": {
+      "description": "How a delivery ended.",
+      "anyOf": [
+        {
+          "const": "delivered"
+        },
+        {
+          "const": "failed"
+        }
+      ]
+    },
+    "DeliveryRequest": {
+      "description": "A request to deliver an issued document.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "channel",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "Delivery": {
+      "description": "A delivery of an issued document and its outcome.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requestedAt": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "$ref": "#/$defs/DeliveryStatus"
+            },
+            "at": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "status",
+            "at"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id",
+        "channel",
+        "to",
+        "requestedAt"
+      ],
+      "additionalProperties": false
+    },
+    "Figures": {
+      "description": "The figures fixed at issue: what the document legally says, as strings.",
+      "type": "object",
+      "properties": {
+        "policy": {
+          "type": "string"
+        },
+        "core": {
+          "type": "string"
+        },
+        "scale": {
+          "type": "integer"
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "net": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "net"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "taxes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "scheme": {
+                "type": "string"
+              },
+              "category": {
+                "type": "string"
+              },
+              "rate": {
+                "type": "string"
+              },
+              "perUnit": {
+                "type": "string"
+              },
+              "taxable": {
+                "type": "string"
+              },
+              "tax": {
+                "type": "string"
+              },
+              "exemptionReason": {
+                "type": "string"
+              },
+              "exemptionReasonCode": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "scheme",
+              "category",
+              "taxable",
+              "tax"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "totals": {
+          "type": "object",
+          "properties": {
+            "lineNet": {
+              "type": "string"
+            },
+            "allowances": {
+              "type": "string"
+            },
+            "charges": {
+              "type": "string"
+            },
+            "taxExclusive": {
+              "type": "string"
+            },
+            "tax": {
+              "type": "string"
+            },
+            "taxInclusive": {
+              "type": "string"
+            },
+            "prepaid": {
+              "type": "string"
+            },
+            "rounding": {
+              "type": "string"
+            },
+            "payable": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "lineNet",
+            "allowances",
+            "charges",
+            "taxExclusive",
+            "tax",
+            "taxInclusive",
+            "prepaid",
+            "rounding",
+            "payable"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "policy",
+        "core",
+        "scale",
+        "lines",
+        "taxes",
+        "totals"
+      ],
+      "additionalProperties": false
+    },
+    "DocumentState": {
+      "description": "A document as it stands: draft, discarded, issued or void.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            },
+            "data": {
+              "$ref": "#/$defs/DraftData"
+            },
+            "status": {
+              "const": "draft"
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "data",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            },
+            "data": {
+              "$ref": "#/$defs/DraftData"
+            },
+            "status": {
+              "const": "discarded"
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "data",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            },
+            "data": {
+              "$ref": "#/$defs/DraftData"
+            },
+            "number": {
+              "type": "string"
+            },
+            "issueDate": {
+              "type": "string"
+            },
+            "dueDate": {
+              "type": "string"
+            },
+            "figures": {
+              "$ref": "#/$defs/Figures"
+            },
+            "settlements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Settlement"
+              }
+            },
+            "deliveries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Delivery"
+              }
+            },
+            "status": {
+              "const": "issued"
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "data",
+            "number",
+            "issueDate",
+            "dueDate",
+            "figures",
+            "settlements",
+            "deliveries",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "version": {
+              "type": "integer"
+            },
+            "data": {
+              "$ref": "#/$defs/DraftData"
+            },
+            "number": {
+              "type": "string"
+            },
+            "issueDate": {
+              "type": "string"
+            },
+            "dueDate": {
+              "type": "string"
+            },
+            "figures": {
+              "$ref": "#/$defs/Figures"
+            },
+            "settlements": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Settlement"
+              }
+            },
+            "deliveries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Delivery"
+              }
+            },
+            "status": {
+              "const": "void"
+            },
+            "voided": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "reason",
+                "at"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "id",
+            "version",
+            "data",
+            "number",
+            "issueDate",
+            "dueDate",
+            "figures",
+            "settlements",
+            "deliveries",
+            "status",
+            "voided"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DocumentEvent": {
+      "description": "One change to a document, as the log records it.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "created"
+            },
+            "id": {
+              "type": "string"
+            },
+            "data": {
+              "$ref": "#/$defs/DraftData"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "updated"
+            },
+            "data": {
+              "$ref": "#/$defs/DraftData"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "discarded"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "issued"
+            },
+            "number": {
+              "type": "string"
+            },
+            "issueDate": {
+              "type": "string"
+            },
+            "dueDate": {
+              "type": "string"
+            },
+            "figures": {
+              "$ref": "#/$defs/Figures"
+            }
+          },
+          "required": [
+            "type",
+            "number",
+            "issueDate",
+            "dueDate",
+            "figures"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "voided"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "reason",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "settled"
+            },
+            "settlement": {
+              "$ref": "#/$defs/Settlement"
+            }
+          },
+          "required": [
+            "type",
+            "settlement"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "settlement-reversed"
+            },
+            "settlementId": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "settlementId",
+            "reason",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "delivery-requested"
+            },
+            "delivery": {
+              "$ref": "#/$defs/Delivery"
+            }
+          },
+          "required": [
+            "type",
+            "delivery"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "delivery-completed"
+            },
+            "deliveryId": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/$defs/DeliveryStatus"
+            },
+            "at": {
+              "type": "string"
+            },
+            "detail": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "deliveryId",
+            "status",
+            "at"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "StoredEvent": {
+      "description": "An event in a tenant's log.",
+      "type": "object",
+      "properties": {
+        "position": {
+          "type": "integer"
+        },
+        "format": {
+          "type": "integer"
+        },
+        "documentId": {
+          "type": "string"
+        },
+        "version": {
+          "type": "integer"
+        },
+        "at": {
+          "type": "string"
+        },
+        "event": {
+          "$ref": "#/$defs/DocumentEvent"
+        }
+      },
+      "required": [
+        "position",
+        "format",
+        "documentId",
+        "version",
+        "at",
+        "event"
+      ],
+      "additionalProperties": false
+    },
+    "ListQuery": {
+      "description": "Which documents to list, newest first.",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/DocumentKind"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "const": "draft"
+            },
+            {
+              "const": "open"
+            },
+            {
+              "const": "settled"
+            },
+            {
+              "const": "void"
+            },
+            {
+              "const": "discarded"
+            },
+            {
+              "const": "overdue"
+            }
+          ]
+        },
+        "asOf": {
+          "type": "string",
+          "format": "date"
+        },
+        "customer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "ListPage": {
+      "description": "A page of documents.",
+      "type": "object",
+      "properties": {
+        "documents": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DocumentState"
+          }
+        },
+        "next": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "documents"
+      ],
+      "additionalProperties": false
+    },
+    "Policy": {
+      "description": "How a jurisdiction rounds. Change behaviour by publishing a new policy id, never by editing one.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rounding": {
+              "type": "object",
+              "properties": {
+                "amounts": {
+                  "anyOf": [
+                    {
+                      "const": "half-away-from-zero"
+                    },
+                    {
+                      "const": "half-even"
+                    },
+                    {
+                      "const": "half-toward-zero"
+                    },
+                    {
+                      "const": "away-from-zero"
+                    },
+                    {
+                      "const": "toward-zero"
+                    },
+                    {
+                      "const": "floor"
+                    },
+                    {
+                      "const": "ceil"
+                    }
+                  ]
+                },
+                "tax": {
+                  "anyOf": [
+                    {
+                      "const": "half-away-from-zero"
+                    },
+                    {
+                      "const": "half-even"
+                    },
+                    {
+                      "const": "half-toward-zero"
+                    },
+                    {
+                      "const": "away-from-zero"
+                    },
+                    {
+                      "const": "toward-zero"
+                    },
+                    {
+                      "const": "floor"
+                    },
+                    {
+                      "const": "ceil"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "amounts",
+                "tax"
+              ],
+              "additionalProperties": false
+            },
+            "cashIncrement": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "taxRounding": {
+              "const": "document"
+            },
+            "pricesIncludeTax": {
+              "anyOf": [
+                {
+                  "const": false
+                },
+                {
+                  "const": "extract"
+                },
+                {
+                  "const": "reconcile"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "rounding",
+            "taxRounding",
+            "pricesIncludeTax"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "rounding": {
+              "type": "object",
+              "properties": {
+                "amounts": {
+                  "anyOf": [
+                    {
+                      "const": "half-away-from-zero"
+                    },
+                    {
+                      "const": "half-even"
+                    },
+                    {
+                      "const": "half-toward-zero"
+                    },
+                    {
+                      "const": "away-from-zero"
+                    },
+                    {
+                      "const": "toward-zero"
+                    },
+                    {
+                      "const": "floor"
+                    },
+                    {
+                      "const": "ceil"
+                    }
+                  ]
+                },
+                "tax": {
+                  "anyOf": [
+                    {
+                      "const": "half-away-from-zero"
+                    },
+                    {
+                      "const": "half-even"
+                    },
+                    {
+                      "const": "half-toward-zero"
+                    },
+                    {
+                      "const": "away-from-zero"
+                    },
+                    {
+                      "const": "toward-zero"
+                    },
+                    {
+                      "const": "floor"
+                    },
+                    {
+                      "const": "ceil"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "amounts",
+                "tax"
+              ],
+              "additionalProperties": false
+            },
+            "cashIncrement": {
+              "type": "string",
+              "pattern": "^([+-])?(\\d+)(?:\\.(\\d+))?$"
+            },
+            "taxRounding": {
+              "const": "line"
+            },
+            "pricesIncludeTax": {
+              "anyOf": [
+                {
+                  "const": false
+                },
+                {
+                  "const": "extract"
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "rounding",
+            "taxRounding",
+            "pricesIncludeTax"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "TaxCategory": {
+      "description": "A tax category a pack recognises.",
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "levies": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "label",
+        "levies"
+      ],
+      "additionalProperties": false
+    },
+    "NamedTax": {
+      "description": "A tax a line can name instead of spelling out: tax: \"service-8\".",
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "taxes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TaxInput"
+          }
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "checked": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "required": [
+        "label",
+        "taxes",
+        "source",
+        "checked"
+      ],
+      "additionalProperties": false
+    },
+    "RuleCheck": {
+      "description": "What a rule requires of an issued document, at a path into { data, figures }: \"data.buyer.ids[scheme=TIN].value\". \"[]\" visits every element.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "require": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "require"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "match": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "match",
+            "pattern"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "oneOf": {
+              "type": "string",
+              "minLength": 1
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "oneOf",
+            "values"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "Rule": {
+      "description": "A rule every document issued under a pack meets.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "check": {
+          "$ref": "#/$defs/RuleCheck"
+        }
+      },
+      "required": [
+        "id",
+        "message",
+        "source",
+        "check"
+      ],
+      "additionalProperties": false
+    },
+    "Voiding": {
+      "description": "Whether an issued document may be voided. Otherwise it is corrected with a credit note.",
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "allowed": {
+              "const": true
+            }
+          },
+          "required": [
+            "allowed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "allowed": {
+              "const": false
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "allowed",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "allowed": {
+              "const": "within"
+            },
+            "hours": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "after": {
+              "const": "validation"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "allowed",
+            "hours",
+            "after",
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "CountryPack": {
+      "description": "What the core knows about a jurisdiction, as data: its policies, tax categories, named taxes, rules and voiding.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policies": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[\\x21-\\x23\\x25-\\x5e\\x60-\\x7e][\\x20-\\x7e]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/Policy"
+          }
+        },
+        "taxCategories": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[\\x21-\\x23\\x25-\\x5e\\x60-\\x7e][\\x20-\\x7e]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/TaxCategory"
+          }
+        },
+        "rules": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Rule"
+          }
+        },
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "policy": {
+              "type": "string",
+              "minLength": 1
+            },
+            "currency": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$",
+              "description": "An ISO 4217 currency code"
+            },
+            "timeZone": {
+              "type": "string",
+              "minLength": 1,
+              "description": "An IANA time zone"
+            }
+          },
+          "required": [
+            "policy"
+          ],
+          "additionalProperties": false
+        },
+        "taxes": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[\\x21-\\x23\\x25-\\x5e\\x60-\\x7e][\\x20-\\x7e]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/NamedTax"
+          }
+        },
+        "voiding": {
+          "$ref": "#/$defs/Voiding"
+        }
+      },
+      "required": [
+        "id",
+        "policies",
+        "taxCategories",
+        "rules",
+        "defaults",
+        "taxes",
+        "voiding"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

@@ -7,10 +7,13 @@
  * backend's transactions, numbering and storage, not just the core.
  */
 import { describe, expect, it } from "vitest";
-import type { Books } from "../books.ts";
+import { EVENT_FORMAT, MAX_DOCUMENT_BYTES, replay, type Books } from "../books.ts";
+import type { CountryPack } from "../pack.ts";
+import { bundledPacks } from "../packs/index.ts";
 import { balance } from "../document/balance.ts";
-import { evolve } from "../document/execute.ts";
+import { localDate } from "../document/dates.ts";
 import type { NewDocument } from "../document/input.ts";
+import type { ListQuery } from "../document/listing.ts";
 import type { DocumentState, DraftData, IssuedState } from "../document/types.ts";
 import { InvoiceError, type InvoiceErrorCode } from "../errors.ts";
 
@@ -29,30 +32,22 @@ export const sampleInvoice = (overrides: Partial<DraftData> = {}): DraftData => 
     ...overrides,
 });
 
-const refused = async (code: InvoiceErrorCode, action: Promise<unknown>) => {
-    const error = await action.then(
+/** The error an action threw: every backend's `Books` refuses with an `InvoiceError`. */
+const thrown = (action: Promise<unknown>) =>
+    action.then(
         () => undefined,
         (e: unknown) => e,
     );
-    expect(error, `expected refusal ${code}`).toBeDefined();
-    // A backend may rethrow across a boundary (Convex, RPC); the code must survive.
-    expect(error instanceof InvoiceError ? error.code : (error as { data?: { code?: string } })?.data?.code ?? String(error)).toContain(code);
+
+const refused = async (code: InvoiceErrorCode, action: Promise<unknown>) => {
+    const error = await thrown(action);
+    expect(error instanceof InvoiceError ? error.code : `not a refusal: ${String(error)}`).toBe(code);
 };
 
-/**
- * A refusal of malformed input: the code when the backend reports one; a
- * backend that validates arguments itself (Convex) may refuse earlier with its
- * own error. Either way nothing is written.
- */
+/** A refusal of malformed input, never a crash, that writes nothing. */
 const refusedInput = async (books: Books, code: InvoiceErrorCode, action: () => Promise<unknown>) => {
     const before = await books.events(0, 1000);
-    const error = await action().then(
-        () => undefined,
-        (e: unknown) => e,
-    );
-    expect(error, `expected a refusal (${code})`).toBeDefined();
-    const reported = error instanceof InvoiceError ? error.code : (error as { data?: { code?: string } })?.data?.code;
-    if (reported !== undefined) expect(reported).toBe(code);
+    await refused(code, action());
     expect(await books.events(0, 1000)).toEqual(before);
 };
 
@@ -61,7 +56,22 @@ const issued = (s: DocumentState) => {
     return s as IssuedState;
 };
 
-export function booksConformance(name: string, makeBooks: () => Promise<Books> | Books): void {
+/** A pack no one ships: proof that a jurisdiction is data any backend accepts. */
+export const testPack: CountryPack = {
+    id: "ZZ",
+    policies: { standard: { id: "zz-standard@1", taxRounding: "document", rounding: { amounts: "half-away-from-zero", tax: "half-away-from-zero" }, pricesIncludeTax: false } },
+    taxCategories: { S: { label: "Standard", levies: true }, E: { label: "Exempt", levies: false } },
+    rules: [{ id: "ZZ-1", message: "the buyer has a TIN", source: "https://example.test/zz", check: { require: "data.buyer.ids[scheme=TIN].value" } }],
+    defaults: { policy: "standard", currency: "MYR", timeZone: "Asia/Kuala_Lumpur" },
+    taxes: { "vat-7": { label: "VAT 7%", taxes: [{ category: "S", rate: "7" }], source: "https://example.test/zz", checked: "2026-10-23" } },
+    voiding: { allowed: true },
+};
+
+/**
+ * `makeBooks` returns fresh, empty books in Asia/Kuala_Lumpur, with the
+ * bundled packs, or with `options.packs` when given.
+ */
+export function booksConformance(name: string, makeBooks: (options?: { packs?: readonly CountryPack[] }) => Promise<Books> | Books): void {
     describe(`${name}: books conformance`, () => {
         it("issues invoices with consecutive numbers per series and fixes their figures", async () => {
             const books = await makeBooks();
@@ -70,6 +80,8 @@ export function booksConformance(name: string, makeBooks: () => Promise<Books> |
             const a = issued(await books.issue("a"));
             const b = issued(await books.issue("b"));
             expect([a.number, b.number]).toEqual(["INV-2026-00001", "INV-2026-00002"]);
+            expect((await books.getByNumber("INV-2026-00002"))?.id).toBe("b");
+            expect(await books.getByNumber("INV-2026-00003")).toBeUndefined();
             expect(a.figures.totals).toMatchObject({ lineNet: "1637.70", tax: "133.77", payable: "1771.47" });
             expect(a.dueDate).toBe("2026-11-22");
         });
@@ -148,6 +160,7 @@ export function booksConformance(name: string, makeBooks: () => Promise<Books> |
 
             const retry = await books.credit("inv", { id: "cn1", input });
             expect(issued(retry.note).version).toBe(n.version);
+            await refused("duplicate-id", books.credit("inv", { id: "cn1", input: { ...input, note: "a different note" } }));
             const big = { lines: [{ id: "1", name: "Everything", quantity: "1", price: "5000.00", taxes: [{ category: "SE", rate: "8" }] }] };
             await refused("credit-exceeds-outstanding", books.credit("inv", { id: "cn2", input: big }));
             await books.create({ id: "inv2", ...sampleInvoice() });
@@ -339,6 +352,147 @@ export function booksConformance(name: string, makeBooks: () => Promise<Books> |
             await refusedInput(books, "invalid-argument", () => books.create(json('{"buyer":{"name":"A"},"lines":{"name":"x"}}')));
         });
 
+        it("lists documents newest first, by kind, status and customer, in pages", async () => {
+            const books = await makeBooks();
+            const make = async (id: string, overrides: Partial<DraftData>) => books.create({ id, ...sampleInvoice(overrides) });
+            // Due today in the tenant's time zone: open, not yet overdue.
+            const today = localDate(new Date().toISOString(), "Asia/Kuala_Lumpur");
+            await make("today", { issueDate: today, due: { date: today } });
+            await books.issue("today");
+            await make("old", { customer: "acme", issueDate: "2020-01-02" });
+            await books.issue("old");
+            await make("future", { customer: "acme", due: { date: "2099-12-31" } });
+            await books.issue("future");
+            await make("paid", { customer: "zen" });
+            await books.issue("paid");
+            await books.settle("paid", { id: "p1", kind: "payment", amount: "1771.47", date: "2026-10-25" });
+            await make("draft", { customer: "acme" });
+            await make("gone", {});
+            await books.discard("gone");
+            await make("voided", {});
+            await books.issue("voided");
+            await books.void("voided", "issued in error");
+            const one = { id: "1", name: "x", quantity: "1", price: "1.00", taxes: [{ category: "E" }] };
+            await books.credit("future", { id: "cn", input: { issueDate: "2026-10-30", lines: [one] } });
+
+            const ids = async (query?: ListQuery) => (await books.list(query)).documents.map((d) => d.id);
+            // Discarded drafts are left out unless asked for.
+            expect(await ids()).toEqual(["cn", "voided", "draft", "paid", "future", "old", "today"]);
+            expect(await ids({ status: "draft" })).toEqual(["draft"]);
+            expect(await ids({ status: "discarded" })).toEqual(["gone"]);
+            expect(await ids({ status: "void" })).toEqual(["voided"]);
+            expect(await ids({ status: "settled" })).toEqual(["cn", "paid"]);
+            expect(await ids({ status: "open" })).toEqual(["future", "old", "today"]);
+            expect(await ids({ status: "overdue" })).toEqual(["old"]);
+            expect(await ids({ status: "overdue", asOf: "2099-12-31" })).toEqual(["old", "today"]);
+            expect(await ids({ kind: "credit-note" })).toEqual(["cn"]);
+            expect(await ids({ kind: "invoice", status: "settled" })).toEqual(["paid"]);
+            // A credit note belongs to its invoice's customer.
+            expect(await ids({ customer: "acme" })).toEqual(["cn", "draft", "future", "old"]);
+            expect(await ids({ customer: "acme", status: "overdue" })).toEqual(["old"]);
+            expect(await ids({ customer: "nobody" })).toEqual([]);
+            await books.update("draft", sampleInvoice({ customer: "zen" }));
+            expect(await ids({ customer: "zen" })).toEqual(["draft", "paid"]);
+            expect(await ids({ customer: "acme" })).toEqual(["cn", "future", "old"]);
+
+            const paged: string[] = [];
+            let page = await books.list({ limit: 2 });
+            expect(page.documents).toHaveLength(2);
+            for (;;) {
+                paged.push(...page.documents.map((d) => d.id));
+                if (page.next === undefined) break;
+                page = await books.list({ limit: 2, cursor: page.next });
+            }
+            expect(paged).toEqual(await ids());
+
+            // The list follows the settlements: a reversal reopens a paid invoice.
+            await books.reverseSettlement("paid", "p1", "bounced");
+            expect(await ids({ status: "settled" })).toEqual(["cn"]);
+            expect(await ids({ status: "open" })).toEqual(["paid", "future", "old", "today"]);
+
+            await refused("invalid-argument", books.list({ limit: 0 }));
+            await refused("invalid-argument", books.list({ limit: 100_000 }));
+            await refused("invalid-argument", books.list({ cursor: "abc" }));
+            await refused("missing-field", books.list({ customer: "" }));
+            await refused("invalid-date", books.list({ status: "overdue", asOf: "2026-02-30" }));
+            await refused("invalid-argument", books.list({ status: "open", asOf: "2026-10-23" }));
+            await refused("missing-field", books.create({ ...sampleInvoice({ customer: "" }) }));
+            const late: ListQuery = JSON.parse('{"status":"late"}');
+            await refusedInput(books, "invalid-argument", () => books.list(late));
+        });
+
+        it("takes a country pack as data: its taxes, rules and voiding apply on any backend", async () => {
+            const plain = await makeBooks();
+            await refused("invalid-argument", plain.configure({ country: "ZZ" }));
+
+            const books = await makeBooks({ packs: [...bundledPacks, testPack] });
+            await books.configure({ country: "ZZ", seller: { name: "Zed Ltd" } });
+            const line = { name: "Widget", quantity: "2", price: "50.00", tax: "vat-7" };
+            const draft = await books.create({ id: "z", buyer: { name: "Acme" }, issueDate: "2026-10-23", lines: [line] });
+            expect(draft.data).toMatchObject({ policy: "zz-standard@1", currency: "MYR", lines: [{ taxes: [{ category: "S", rate: "7" }] }] });
+            await refused("rule-failed", books.issue("z"));
+            await books.update("z", { buyer: { name: "Acme", ids: [{ scheme: "TIN", value: "Z123" }] }, issueDate: "2026-10-23", lines: [line] });
+            const doc = issued(await books.issue("z"));
+            expect(doc.figures.totals).toMatchObject({ tax: "7.00", payable: "107.00" });
+            expect((await books.void("z", "issued in error")).status).toBe("void");
+        });
+
+        it("refuses a document that would outgrow what every backend can store, and writes nothing", async () => {
+            const books = await makeBooks();
+            const before = await books.events(0, 1000);
+            const big = sampleInvoice({ lines: [{ id: "1", name: "x", description: "x".repeat(MAX_DOCUMENT_BYTES), quantity: "1", price: "1.00", taxes: [{ category: "E" }] }] });
+            await refused("too-large", books.create({ id: "big", ...big }));
+            expect(await books.get("big")).toBeUndefined();
+            expect(await books.events(0, 1000)).toEqual(before);
+        });
+
+        it("a command that fails after its first save leaves nothing behind", async () => {
+            const books = await makeBooks();
+            // A credit note series whose first number reads like the first invoice number.
+            await books.configure({ numbering: { invoice: { prefix: "INV-{yyyy}-", digits: 5 }, "credit-note": { prefix: "INV-{yyyy}-0", digits: 4 } } });
+            await books.create({ id: "inv", ...sampleInvoice() });
+            const invoice = issued(await books.issue("inv"));
+            expect(invoice.number).toBe("INV-2026-00001");
+            const before = await books.events(0, 1000);
+            const one = { id: "1", name: "x", quantity: "1", price: "1.00", taxes: [{ category: "E" }] };
+            await refused("duplicate-number", books.credit("inv", { id: "cn", input: { issueDate: "2026-10-30", lines: [one] } }));
+            expect(await books.events(0, 1000)).toEqual(before);
+            expect(await books.get("inv")).toEqual(invoice);
+            expect(await books.get("cn")).toBeUndefined();
+            // The refused note drew nothing from its series.
+            await books.configure({ numbering: { invoice: { prefix: "INV-{yyyy}-", digits: 5 }, "credit-note": { prefix: "INV-{yyyy}-0", digits: 5 } } });
+            const { note } = await books.credit("inv", { id: "cn", input: { issueDate: "2026-10-30", lines: [one] } });
+            expect(issued(note).number).toBe("INV-2026-000001");
+        });
+
+        it("refuses a settlement that would grow a document past the size limit", async () => {
+            const books = await makeBooks();
+            const line = { id: "1", name: "x", description: "x".repeat(MAX_DOCUMENT_BYTES - 6000), quantity: "1", price: "1000.00", taxes: [{ category: "E" }] };
+            await books.create({ id: "a", ...sampleInvoice({ lines: [line] }) });
+            const doc = issued(await books.issue("a"));
+            const before = await books.events(0, 1000);
+            await refused("too-large", books.settle("a", { id: "p", kind: "payment", amount: "1.00", date: "2026-10-25", reference: "y".repeat(8000) }));
+            expect(await books.get("a")).toEqual(doc);
+            expect(await books.events(0, 1000)).toEqual(before);
+        });
+
+        it("rebuilds every listing from its document, a page at a time, changing nothing that was right", async () => {
+            const books = await makeBooks();
+            for (let i = 0; i < 105; i++) await books.create({ id: `d${String(i).padStart(3, "0")}`, ...sampleInvoice({ customer: i % 2 ? "odd" : "even" }) });
+            await books.issue("d000");
+            const before = (await books.list({ limit: 200 })).documents.map((d) => d.id);
+            const pages: ({ next?: string } | undefined)[] = [];
+            let page = await books.rebuildListings();
+            pages.push(page);
+            while (page.next !== undefined) {
+                page = await books.rebuildListings(page.next);
+                pages.push(page);
+            }
+            expect(pages.length).toBeGreaterThan(1);
+            expect((await books.list({ limit: 200 })).documents.map((d) => d.id)).toEqual(before);
+            expect((await books.list({ customer: "even", status: "open" })).documents.map((d) => d.id)).toEqual(["d000"]);
+        });
+
         it("replaying the event log rebuilds every document exactly", async () => {
             const books = await makeBooks();
             await books.create({ id: "a", ...sampleInvoice() });
@@ -348,13 +502,12 @@ export function booksConformance(name: string, makeBooks: () => Promise<Books> |
             await books.create({ id: "draft", ...sampleInvoice() });
             const log = await books.events(0, 1000);
             expect(log.map((e) => e.position)).toEqual(log.map((_, i) => i + 1));
-            const rebuilt = new Map<string, DocumentState>();
-            for (const { documentId, version, event } of log) {
-                const next = evolve(rebuilt.get(documentId), event);
-                expect(next.version).toBe(version);
-                rebuilt.set(documentId, next);
-            }
+            expect(log.every((e) => e.format === EVENT_FORMAT)).toBe(true);
+            const rebuilt = replay(log);
+            const step = new Map<string, DocumentState>();
+            for (const e of log) expect(replay([e], step).get(e.documentId)!.version).toBe(e.version);
             for (const [id, state] of rebuilt) expect(await books.get(id)).toEqual(state);
+            expect(() => replay([{ ...log[0]!, format: EVENT_FORMAT + 1 }])).toThrow(InvoiceError);
         });
     });
 }

@@ -66,9 +66,13 @@ design discussion first.
 - **Traceable.** Every field names its EN 16931 business term, every check
   names its rule, and every tax rate names its source and the date it was
   checked.
-- **Pure core.** `decide`, `evolve`, `compute` and friends do no I/O. Backends
-  own storage, clocks and numbering.
-- **The country is data.** No `if (country === "MY")` in the core.
+- **Pure core.** `decide`, `evolve`, `compute` and friends do no I/O. A backend
+  is a `Store`: it reads and writes rows, and holds no rules.
+- **The country is data.** No `if (country === "MY")` in the core. A pack is
+  JSON, so it holds no functions.
+- **One definition per shape.** Shapes live in
+  `packages/core/src/schema/shapes.ts`. After changing one, run `pnpm gen`; the
+  tests fail while a generated file is stale.
 - **Published policies never change.** A change in calculated figures needs a
   new policy id. The golden files in `packages/core/test/golden` fail if a
   published policy's output moves.
@@ -79,7 +83,10 @@ A country pack is a file in `packages/core/src/packs/`. `my.ts` is a complete
 example.
 
 1. Declare the policies (where and how tax rounds), the tax categories, the
-   defaults (policy, currency, time zone), the named taxes and the void rule.
+   defaults (policy, currency, time zone), the named taxes, the rules and
+   `voiding`. It is plain data, checked against `shapes.CountryPack` when it is
+   registered. A rule is `require`, `match` or `oneOf` at a path such as
+   `data.buyer.ids[scheme=TIN].value`.
 2. Give every rate a `source` URL and a `checked` date. Prefer the tax
    authority's own publication. If you can only find a secondary source, say so
    in a comment.
@@ -87,21 +94,24 @@ example.
 4. Add scenario tests with worked examples from the source, and run the golden
    tests once to record the new policies.
 
+If the country's arithmetic needs something `Policy` cannot say yet (a third
+place to round tax, a tax-inclusive base), open an issue first. That is a new
+value in core's vocabulary, with property tests, not code in the pack.
+
 ## Adding a backend
 
-A backend implements `Books` from `packages/core/src/books.ts`. Read
-`packages/core/src/memory.ts` first; it is the whole pattern:
-
-```
-in one transaction: load settings and state → expand → take a number if issuing → execute → save state + events
-```
+A backend implements `Store` from `packages/core/src/store.ts`: a transaction,
+and row operations for settings, documents, listings, sequences and the log.
+Core's `createBooks(store)` runs every command on it. Read
+`packages/core/src/memory.ts` first; it is the whole pattern in under 100 lines.
 
 Then pass the shared suite:
 
 ```ts
+import { createBooks } from "@invoice-primitives/core/backend";
 import { booksConformance } from "@invoice-primitives/core/testing";
 
-booksConformance("my-backend", async () => makeFreshBooks());
+booksConformance("my-backend", async (options) => createBooks(await makeFreshStore(), options));
 ```
 
 ## Pull requests

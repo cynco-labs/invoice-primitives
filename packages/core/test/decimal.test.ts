@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dec, type RoundingMode } from "../src/money/decimal.ts";
+import { dec, ROUNDING_MODES } from "../src/money/decimal.ts";
 
-const MODES: RoundingMode[] = ["half-away-from-zero", "half-even", "half-toward-zero", "away-from-zero", "toward-zero", "floor", "ceil"];
+const MODES = ROUNDING_MODES;
 
 describe("Decimal", () => {
     it.each([

@@ -22,7 +22,7 @@ export default app;
 
 ```ts
 // convex/invoices.ts
-import { Invoicing, refusalOf } from "@invoice-primitives/convex";
+import { Invoicing } from "@invoice-primitives/convex";
 import { v } from "convex/values";
 import { components } from "./_generated/api";
 import { mutation } from "./_generated/server";
@@ -40,9 +40,13 @@ export const issue = mutation({
 });
 ```
 
-`invoicing.books(ctx, tenant)` returns core's `Books`, the same object every backend gives, so code written against the root README's quick start runs here unchanged. The client also offers each method directly, with `ctx` and `tenant` first: `configure`, `create`, `update`, `discard`, `issue`, `void`, `settle`, `reverseSettlement`, `requestDelivery`, `completeDelivery`, `credit`, and the queries `get`, `getByNumber`, `events`. Mutations need a mutation or action `ctx`; queries take any `ctx`.
+`invoicing.books(ctx, tenant)` returns core's `Books`, the same object every backend gives, so code written against the root README's quick start runs here unchanged. The client also offers each method directly, with `ctx` and `tenant` first: `configure`, `create`, `update`, `discard`, `issue`, `void`, `settle`, `reverseSettlement`, `requestDelivery`, `completeDelivery`, `credit`, `rebuildListings`, and the queries `get`, `getByNumber`, `list`, `events`. A query a client subscribes to is not rerun when the date changes, so pass `asOf` to `list` from the client when it asks for overdue documents. Mutations need a mutation or action `ctx`; queries take any `ctx`.
 
-A refused command throws a `ConvexError` whose `data` is core's refusal, `{ code, path, detail }`. It reaches your React client intact if you let it propagate. Use `refusalOf(error)` to read it on the server.
+Through `books()`, a refused command throws core's `InvoiceError`, as on every backend, and malformed arguments are refused with a code and a path before they reach the component. The direct methods throw a `ConvexError` whose `data` is the refusal, `{ code, path, detail }`; it reaches your React client intact if you let it propagate, and `refusalOf(error)` turns it back into an `InvoiceError` on the server.
+
+## Your own country packs
+
+`new Invoicing(components.invoicing, { packs: [...bundledPacks, mine] })` sends the packs, as JSON, with every call; Convex checks each against the generated `vCountryPack` validator and core checks it again. A pack is data, so it crosses the component boundary like any other argument.
 
 ## Tenants and time zones
 
@@ -54,7 +58,8 @@ A refused command throws a `ConvexError` whose `data` is core's refusal, `{ code
 | Table | Holds | Index |
 | --- | --- | --- |
 | `documents` | The current state of each document, plus `number` copied out for lookup | `by_tenant_and_documentId`, `by_tenant_and_number` |
-| `events` | Each tenant's log, at positions 1, 2, 3... with no gaps | `by_tenant_and_position` |
+| `listings` | Each document's listing (kind, stage, customer, due date) and `seq`, for `list` | `by_tenant_and_seq`, and by kind, stage or customer then `seq` |
+| `events` | Each tenant's log, at positions 1, 2, 3... with no gaps, each with its `format` | `by_tenant_and_position`, `by_tenant_and_documentId_and_position` |
 | `sequences` | The last number taken in each series | `by_tenant_and_series` |
 | `settings` | Each tenant's time zone and numbering | `by_tenant` |
 

@@ -2,144 +2,33 @@
  * The document primitive: an invoice or credit note as plain data, the
  * commands that change it, and the events that record each change.
  *
- * Everything here is JSON. Amounts are decimal strings, dates are ISO
- * calendar dates ("2026-10-23"), instants are ISO timestamps. A backend stores
- * state and events as they are.
+ * Everything here is JSON, defined once in `schema/shapes.ts`. Amounts are
+ * decimal strings, dates are ISO calendar dates ("2026-10-23"), instants are
+ * ISO timestamps. A backend stores state and events as they are.
  */
-import type { DocumentAdjustment, LineInput } from "../calc/model.ts";
+import type { Infer } from "../schema/dsl.ts";
+import type * as S from "../schema/shapes.ts";
 
-export type DocumentKind = "invoice" | "credit-note";
-
-export interface Party {
-    /** BT-27 / BT-44. */
-    name: string;
-    /** Tax and registration identifiers: VAT, TIN, BRN, SST... (BT-29..32, BT-46..48). */
-    ids?: readonly { scheme: string; value: string }[];
-    email?: string;
-    address?: Address;
-}
-
-export interface Address {
-    /** Street lines, in order: ["Lot 12, Jalan Ampang", "Level 3"]. */
-    lines: readonly string[];
-    city?: string;
-    postalCode?: string;
-    region?: string;
-    /** ISO 3166-1 alpha-2. */
-    country: string;
-}
-
-export interface Line extends LineInput {
-    /** BT-153. */
-    name: string;
-    /** BT-154. */
-    description?: string;
-    /** BT-130, a UN/ECE Recommendation 20 code ("C62" one, "HUR" hour). */
-    unit?: string;
-}
-
+export type DocumentKind = DraftData["kind"];
+export type Party = Infer<typeof S.Party>;
+export type Address = Infer<typeof S.Address>;
+export type Line = Infer<typeof S.Line>;
 /** What a draft says. Free to change until the document is issued. */
-export interface DraftData {
-    kind: DocumentKind;
-    /** A policy id from a registered country pack: how the document is calculated. */
-    policy: string;
-    /** BT-5. */
-    currency: string;
-    seller: Party;
-    buyer: Party;
-    lines: readonly Line[];
-    allowances?: readonly DocumentAdjustment[];
-    charges?: readonly DocumentAdjustment[];
-    /** BT-2. Defaults to the day of issue in the seller's time zone. */
-    issueDate?: string;
-    /** BT-9 as a date, or payment terms in days after issue. Defaults to the issue date. */
-    due?: { date: string } | { days: number };
-    /** BT-10. */
-    buyerReference?: string;
-    /** BT-13. */
-    orderReference?: string;
-    /** BT-22. */
-    note?: string;
-    /** For a credit note, the id of the invoice it corrects. */
-    corrects?: string;
-    /** BT-25: that invoice's number, as printed on the note. */
-    correctsNumber?: string;
-}
-
+export type DraftData = Infer<typeof S.DraftData>;
 /** The figures fixed at issue: what the document legally says, as strings. */
-export interface Figures {
-    policy: string;
-    core: string;
-    scale: number;
-    lines: readonly { id: string; net: string }[];
-    taxes: readonly {
-        scheme: string;
-        category: string;
-        rate?: string;
-        perUnit?: string;
-        taxable: string;
-        tax: string;
-        exemptionReason?: string;
-        exemptionReasonCode?: string;
-    }[];
-    totals: {
-        lineNet: string;
-        allowances: string;
-        charges: string;
-        taxExclusive: string;
-        tax: string;
-        taxInclusive: string;
-        prepaid: string;
-        rounding: string;
-        payable: string;
-    };
-}
-
+export type Figures = Infer<typeof S.Figures>;
 /** Money that settled part of an issued document: a payment, a credit note, a write-off. */
-export interface Settlement {
-    /** Caller-chosen and unique per document. Repeating a settle with the same id and values is a no-op. */
-    id: string;
-    kind: "payment" | "credit" | "write-off";
-    /** Positive, in the document's currency. */
-    amount: string;
-    /** The calendar date the money moved. */
-    date: string;
-    /** A bank reference, payment method, or the id of the other document. */
-    reference?: string;
-    reversed?: { reason: string; at: string };
-}
-
-export interface Delivery {
-    id: string;
-    /** "email", "link", "peppol"... */
-    channel: string;
-    to: string;
-    requestedAt: string;
-    outcome?: { status: "delivered" | "failed"; at: string; detail?: string };
-}
-
-interface Base {
-    id: string;
-    /** The number of events applied. A backend saves only when this is still what it loaded. */
-    version: number;
-    data: DraftData;
-}
-
-interface IssuedFields {
-    /** BT-1. */
-    number: string;
-    issueDate: string;
-    dueDate: string;
-    figures: Figures;
-    settlements: readonly Settlement[];
-    deliveries: readonly Delivery[];
-}
-
-export type DraftState = Base & { status: "draft" };
-export type DiscardedState = Base & { status: "discarded" };
-export type IssuedState = Base & IssuedFields & { status: "issued" };
-export type VoidState = Base & IssuedFields & { status: "void"; voided: { reason: string; at: string } };
-export type DocumentState = DraftState | DiscardedState | IssuedState | VoidState;
+export type Settlement = Infer<typeof S.Settlement>;
+export type Delivery = Infer<typeof S.Delivery>;
+export type DeliveryRequest = Infer<typeof S.DeliveryRequest>;
+export type DeliveryStatus = Infer<typeof S.DeliveryStatus>;
+export type NewSettlement = Infer<typeof S.NewSettlement>;
+export type DraftState = Infer<typeof S.DraftState>;
+export type DiscardedState = Infer<typeof S.DiscardedState>;
+export type IssuedState = Infer<typeof S.IssuedState>;
+export type VoidState = Infer<typeof S.VoidState>;
+export type DocumentState = Infer<typeof S.DocumentState>;
+export type DocumentEvent = Infer<typeof S.DocumentEvent>;
 
 export type Command =
     | { type: "create"; id: string; data: DraftData }
@@ -148,18 +37,7 @@ export type Command =
     /** `number` comes from the backend's sequence, allocated in the same transaction (see `numberFor`). */
     | { type: "issue"; number: string }
     | { type: "void"; reason: string }
-    | { type: "settle"; settlement: Omit<Settlement, "reversed"> }
+    | { type: "settle"; settlement: NewSettlement }
     | { type: "reverse-settlement"; settlementId: string; reason: string }
-    | { type: "request-delivery"; delivery: { id: string; channel: string; to: string } }
-    | { type: "complete-delivery"; deliveryId: string; status: "delivered" | "failed"; detail?: string };
-
-export type DocumentEvent =
-    | { type: "created"; id: string; data: DraftData }
-    | { type: "updated"; data: DraftData }
-    | { type: "discarded" }
-    | { type: "issued"; number: string; issueDate: string; dueDate: string; figures: Figures }
-    | { type: "voided"; reason: string; at: string }
-    | { type: "settled"; settlement: Settlement }
-    | { type: "settlement-reversed"; settlementId: string; reason: string; at: string }
-    | { type: "delivery-requested"; delivery: Delivery }
-    | { type: "delivery-completed"; deliveryId: string; status: "delivered" | "failed"; at: string; detail?: string };
+    | { type: "request-delivery"; delivery: DeliveryRequest }
+    | { type: "complete-delivery"; deliveryId: string; status: DeliveryStatus; detail?: string };

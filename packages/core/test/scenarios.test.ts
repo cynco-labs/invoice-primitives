@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { allocate, bundledPacks, compute, createRegistry, dec, InvoiceError, numberingFor, verify, type InvoiceErrorCode, type IssuedState } from "../src/index.ts";
+import { createRegistry } from "../src/backend.ts";
+import { numberingFor } from "../src/document/execute.ts";
+import { allocate, bundledPacks, canVoid, compute, dec, InvoiceError, verify, type InvoiceErrorCode } from "../src/index.ts";
 import { sampleInvoice } from "../src/testing/conformance.ts";
 import { eu } from "../src/packs/eu.ts";
 import { jp, jpPolicy } from "../src/packs/jp.ts";
@@ -216,9 +218,10 @@ describe("numbering", () => {
 
 describe("country packs", () => {
     it("MyInvois allows cancellation within 72 hours of validation, then only a credit note", () => {
-        const doc = {} as IssuedState;
         const validatedAt = "2026-10-23T00:00:00Z";
-        expect(my.canVoid(doc, "2026-10-25T23:59:59Z", { validatedAt })).toEqual({ allowed: true });
-        expect(my.canVoid(doc, "2026-10-26T00:00:01Z", { validatedAt }).allowed).toBe(false);
+        expect(canVoid(my.voiding, "2026-10-25T23:59:59Z", validatedAt)).toEqual({ allowed: true });
+        expect(canVoid(my.voiding, "2026-10-26T00:00:01Z", validatedAt).allowed).toBe(false);
+        expect(canVoid(my.voiding, "2030-01-01T00:00:00Z")).toEqual({ allowed: true });
+        expect(canVoid(eu.voiding, "2026-10-23T00:00:00Z").allowed).toBe(false);
     });
 });
