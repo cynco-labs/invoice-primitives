@@ -11,7 +11,9 @@
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm build"
   },
   "dependencies": {
     "@invoice-primitives/core": "workspace:*",
@@ -22,5 +24,25 @@
     "convex-test": "^0.0.64",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
-  }
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/client/index.d.ts",
+        "default": "./dist/client/index.js"
+      },
+      "./convex.config": {
+        "types": "./dist/component/convex.config.d.ts",
+        "default": "./dist/component/convex.config.js"
+      },
+      "./convex.config.js": {
+        "types": "./dist/component/convex.config.d.ts",
+        "default": "./dist/component/convex.config.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
 }

@@ -1,6 +1,6 @@
 # invoice-primitives
 
-Invoicing primitives for TypeScript: exact money, tax that rounds the way tax authorities expect, documents that cannot change after they are issued, gapless numbering, payments, credit notes and an event log. It runs on Convex, Cloudflare Durable Objects, Node, Bun, Deno and in the browser.
+Invoicing primitives for TypeScript: exact money, tax that rounds the way tax authorities expect, documents that cannot change after they are issued, gapless numbering, payments, credit notes and an event log. Core is plain JavaScript with no dependencies, so it runs on Node, Bun, Deno, Workers, Convex and in the browser; backends for Convex and Cloudflare Durable Objects ship alongside.
 
 Working name. Not published yet.
 
@@ -64,6 +64,13 @@ const html = renderHtml(present(doc, { locale: "en-MY", asOf: "2026-10-25" }), {
 
 **What `country: "MY"` gives you.** The calculation policy (PINT-MY), the currency (MYR), the time zone (Asia/Kuala_Lumpur) and named taxes: `sales-10`, `sales-5`, `service-8`, `service-6`, `tourism`, `exempt` and `outside-scope`. Each named tax records its source and the date it was checked. Japan (`"JP"`) and the EU (`"EU"`) ship too. Any of these can be overridden in `configure` or on a single document. A line can also spell its taxes out (`taxes: [{ category: "SE", rate: "8" }]`) instead of naming one.
 
+**Install.** `npm install @invoice-primitives/core`, plus `@invoice-primitives/convex` or `@invoice-primitives/cloudflare` for a backend. The packages ship compiled JavaScript with type declarations and have no runtime dependencies beyond core. Until they are published, `pnpm pack` in each package gives you tarballs to install.
+
+**Good to know:**
+- `balance(doc, asOf)` counts the payments dated on or before `asOf`. Leave `asOf` out to count all of them.
+- A credit note takes the same short lines as `create`, with positive quantities: `books.credit(invoiceId, { id: "cn_1", input: { lines: [{ name: "Refund: 1 hour", quantity: "1", price: "150.00", tax: "service-8" }] } })`. It is issued and applied to the invoice in one step.
+- A party's address is `{ lines: ["Lot 12, Jalan Ampang"], city: "Kuala Lumpur", postalCode: "50450", country: "MY" }`.
+
 **What you can rely on:**
 - Amounts are strings in and out (`"150.00"`), so nothing passes through a float.
 - A command that repeats what already happened changes nothing, so a retried request is safe. Pass your own `id` to `create` for the same guarantee on creation.
@@ -104,7 +111,7 @@ export const issue = mutation({
 });
 ```
 
-`tenantOf` is yours: derive the tenant from `ctx.auth`, never from a client argument. See `packages/convex/README.md`.
+`tenantOf` is yours: derive the tenant from `ctx.auth`, never from a client argument. See [packages/convex/README.md](packages/convex/README.md).
 
 ### Cloudflare
 
@@ -127,7 +134,7 @@ export default {
 };
 ```
 
-The Durable Object deploys with your Worker (`wrangler deploy`); there is nothing else to run. Why a Durable Object and not D1: issuing needs read → decide → write in one transaction, so that numbers are gapless. A Durable Object gives that directly. D1's API commits statements as they run, or in a `batch()` fixed up front.
+The Durable Object deploys with your Worker (`wrangler deploy`); there is nothing else to run. See [packages/cloudflare/README.md](packages/cloudflare/README.md). Why a Durable Object and not D1: issuing needs read → decide → write in one transaction, so that numbers are gapless. A Durable Object gives that directly. D1's API commits statements as they run, or in a `batch()` fixed up front.
 
 ### What about R2, D1, KV?
 

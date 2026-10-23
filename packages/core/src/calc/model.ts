@@ -25,7 +25,7 @@ export interface InvoiceInput {
 export interface LineInput {
     /** BT-126. */
     id: string;
-    /** BT-129. Negative on a correction line. */
+    /** BT-129, as a decimal string ("10", "1.5"). Negative for an item returned within an invoice; a credit note's lines are positive. */
     quantity: string;
     /**
      * BT-146, the item net price per `baseQuantity`. Tax-inclusive when the

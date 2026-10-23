@@ -14,7 +14,9 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "mutate": "node scripts/mutate.mjs",
-    "bench": "node scripts/bench.ts"
+    "bench": "node scripts/bench.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "pnpm build"
   },
   "peerDependencies": {
     "vitest": ">=3"
@@ -30,5 +32,21 @@
     "fast-xml-parser": "^5.11.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"
-  }
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./testing": {
+        "types": "./dist/testing/conformance.d.ts",
+        "default": "./dist/testing/conformance.js"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ]
 }

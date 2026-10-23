@@ -20,6 +20,7 @@ import {
     contextFor,
     createRegistry,
     expand,
+    newId,
     creditInvoice,
     creditNoteData,
     execute,
@@ -93,7 +94,7 @@ export class InvoicingBooks extends DurableObject<unknown> {
     }
 
     create(document: NewDocument) {
-        const id = document.id ?? crypto.randomUUID();
+        const id = document.id ?? newId();
         return this.run(id, (ctx) => ({ type: "create", id, data: expand(document, ctx) }));
     }
     update(id: string, document: NewDocument) {
@@ -132,7 +133,7 @@ export class InvoicingBooks extends DurableObject<unknown> {
         return this.transaction((ctx) => {
             const invoice = this.load(invoiceId);
             const existing = this.load(note.id);
-            const plan = invoice?.status === "issued" && !existing ? numberingFor(creditNoteData(invoice, note.input), ctx) : undefined;
+            const plan = invoice?.status === "issued" && !existing ? numberingFor(creditNoteData(invoice, note.input, ctx), ctx) : undefined;
             const result = creditInvoice(invoice, existing, { ...note, number: plan ? plan.format(this.next(plan.series)) : "" }, ctx);
             this.save(ctx, invoice, result.invoice.state, result.invoice.events);
             this.save(ctx, existing, result.note.state, result.note.events);

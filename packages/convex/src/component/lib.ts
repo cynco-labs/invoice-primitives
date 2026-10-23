@@ -18,6 +18,7 @@ import {
     checkSettings,
     contextFor,
     expand,
+    newId,
     createRegistry,
     creditInvoice,
     creditNoteData,
@@ -193,7 +194,7 @@ export const create = mutation({
     args: { ...scope, document: vNewDocument },
     returns: vDocumentState,
     handler: (ctx, a) => {
-        const id = a.document.id ?? crypto.randomUUID();
+        const id = a.document.id ?? newId();
         return run(ctx, a, id, (context) => ({ type: "create", id, data: expand(a.document, context) }));
     },
 });
@@ -275,7 +276,7 @@ export const credit = mutation({
             const invoiceState = invoice?.state;
             const plan =
                 invoiceState?.status === "issued" && !existing
-                    ? numberingFor(creditNoteData(invoiceState, a.note.input), b.context)
+                    ? numberingFor(creditNoteData(invoiceState, a.note.input, b.context), b.context)
                     : undefined;
             const number = plan ? plan.format(await b.next(plan.series)) : "";
             const result = creditInvoice(invoiceState, existing?.state, { ...a.note, number }, b.context);

@@ -87,7 +87,7 @@ const noteFields = {
     note: optionalString,
 };
 
-export const vCreditNoteInput = v.object(noteFields);
+export const vCreditNoteInput = v.object({ ...noteFields, lines: v.array(vNewLine) });
 
 export const vDraftData = v.object({
     ...noteFields,

@@ -2,10 +2,15 @@ import { InvoiceError } from "../errors.ts";
 import { dec } from "../money/decimal.ts";
 import { balance } from "./balance.ts";
 import { evolve, execute, issueDateOf, type Context } from "./execute.ts";
+import { expand, type NewDocument } from "./input.ts";
 import type { DocumentEvent, DocumentState, DraftData, IssuedState } from "./types.ts";
 
-/** What a credit note says of its own: the parties, currency and policy are the invoice's. */
-export type CreditNoteInput = Omit<DraftData, "kind" | "corrects" | "correctsNumber" | "seller" | "buyer" | "currency" | "policy">;
+/**
+ * What a credit note says of its own, in the same short form as `create`
+ * (named taxes, optional line ids). The parties, currency and policy are the
+ * invoice's. Lines carry positive quantities: the note itself is the credit.
+ */
+export type CreditNoteInput = Omit<NewDocument, "id" | "kind" | "corrects" | "correctsNumber" | "seller" | "buyer" | "currency" | "policy">;
 
 export interface Change {
     state: DocumentState;
@@ -39,7 +44,7 @@ export function creditInvoice(
     if (invoice.status !== "issued" || invoice.data.kind !== "invoice") {
         throw new InvoiceError("invalid-transition", "invoice", `cannot credit a ${invoice.status} ${invoice.data.kind}`);
     }
-    const data = creditNoteData(invoice, note.input);
+    const data = creditNoteData(invoice, note.input, ctx);
     const date = issueDateOf(data, ctx);
     if (date < invoice.issueDate) {
         throw new InvoiceError("invalid-date", "note.input.issueDate", `a credit note cannot be dated before its invoice (${invoice.issueDate})`);
@@ -72,7 +77,8 @@ export function creditInvoice(
     };
 }
 
-export function creditNoteData(invoice: IssuedState, input: CreditNoteInput): DraftData {
+export function creditNoteData(invoice: IssuedState, input: CreditNoteInput, ctx: Context): DraftData {
     const { seller, buyer, currency, policy } = invoice.data;
-    return { ...input, kind: "credit-note", corrects: invoice.id, correctsNumber: invoice.number, seller, buyer, currency, policy };
+    const data = expand({ ...input, seller, buyer, currency, policy }, ctx);
+    return { ...data, kind: "credit-note", corrects: invoice.id, correctsNumber: invoice.number };
 }

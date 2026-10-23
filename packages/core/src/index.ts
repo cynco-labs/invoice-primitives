@@ -5,6 +5,7 @@ export { verify, type Violation } from "./calc/verify.ts";
 export type * from "./calc/model.ts";
 export { INVOICE_ERROR_CODES, InvoiceError, isInvoiceErrorCode, type InvoiceErrorCode } from "./errors.ts";
 export { CORE } from "./version.ts";
+export { newId } from "./id.ts";
 export { createRegistry, type CountryPack, type NamedTax, type Registry, type Rule, type TaxCategory, type VoidDecision } from "./pack.ts";
 export { decide, evolve, execute, numberingFor, issueDateOf, defaultNumbering, type Context, type Numbering } from "./document/execute.ts";
 export { balance, type Balance } from "./document/balance.ts";

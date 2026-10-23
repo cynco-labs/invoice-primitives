@@ -12,6 +12,7 @@ import { createRegistry, type Registry } from "./pack.ts";
 import { bundledPacks } from "./packs/index.ts";
 import type { Command, DocumentEvent, DocumentState } from "./document/types.ts";
 import { InvoiceError } from "./errors.ts";
+import { newId } from "./id.ts";
 
 export interface BooksConfig extends Settings {
     /** The country packs. Defaults to the bundled ones. */
@@ -79,7 +80,7 @@ export function createMemoryBooks(config: BooksConfig = {}): Books {
             settings = { ...settings, ...next };
         },
         create: (document) => {
-            const id = document.id ?? crypto.randomUUID();
+            const id = document.id ?? newId();
             return run(id, (ctx) => ({ type: "create", id, data: expand(document, ctx) }));
         },
         update: (id, document) => run(id, (ctx) => ({ type: "update", data: expand(document, ctx) })),
@@ -102,7 +103,7 @@ export function createMemoryBooks(config: BooksConfig = {}): Books {
             transaction((ctx) => {
                 const invoice = docs.get(invoiceId);
                 const existing = docs.get(note.id);
-                const plan = invoice?.status === "issued" && !existing ? numberingFor(creditNoteData(invoice, note.input), ctx) : undefined;
+                const plan = invoice?.status === "issued" && !existing ? numberingFor(creditNoteData(invoice, note.input, ctx), ctx) : undefined;
                 const number = plan ? plan.format(next(plan.series)) : "";
                 const result = creditInvoice(invoice, existing, { ...note, number }, ctx);
                 save(ctx, invoice, result.invoice.state, result.invoice.events);

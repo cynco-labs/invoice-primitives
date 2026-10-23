@@ -274,7 +274,9 @@ function issue(data: DraftData, number: string, ctx: Context): DocumentEvent {
         throw new InvoiceError("verification-failed", "", violations.map((v) => `${v.rule}: ${v.message}`).join("; "));
     }
     if (computed.totals.payable.sign() < 0) {
-        throw new InvoiceError("unsupported", "data.lines", "an invoice with a negative total; issue a credit note instead");
+        throw data.kind === "credit-note"
+            ? new InvoiceError("invalid-amount", "data.lines", "a credit note's lines carry positive quantities: the note itself is the credit")
+            : new InvoiceError("unsupported", "data.lines", "an invoice with a negative total; credit the original invoice instead");
     }
     const figures = toFigures(computed);
     const failed = pack.rules.filter((r) => !r.check({ data, figures }));

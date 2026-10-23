@@ -56,6 +56,8 @@ your app ──▶ backend (Convex mutation │ Durable Object │ memory)
 - **Numbers come from the backend, inside the transaction.** `numberingFor(data, context)` names the series; the backend takes its next value and passes the number into `issue`. A refused issue rolls back and draws nothing, so numbers have no gaps. Each backend also refuses a number already held by another document in the tenant (`duplicate-number`), so a change of numbering settings cannot mint a duplicate.
 - **Balance is never stored.** "Paid", "partly paid" and "overdue" are computed from the settlements and a date each time, so they cannot drift.
 - **A credit note exists only applied.** `create` refuses a credit note. `creditInvoice` creates, issues and applies one in a single transaction, and a credit settlement cannot be reversed on its own. Undoing a credit note is not built, so the pair stays consistent by refusal.
+- **Configure once, then a buyer and lines.** A tenant's settings (country, seller, currency, time zone, numbering) live in the backend. `expand` fills a short document from them, and turns named taxes (`tax: "service-8"`) into categories and rates from the country pack, each with its source and the date it was checked. The event records the full draft, so a later settings change never rewrites a document. Malformed JSON from an untyped caller is refused with a path and a hint, not a `TypeError`.
+- **One `Books` object on every backend.** `createMemoryBooks()`, `invoicing.books(ctx, tenant)` on Convex and `booksFor(env.INVOICING, tenant)` on Cloudflare return the same interface, so application code moves between them by changing one line.
 - **Every backend passes the same suite.** `booksConformance(name, makeBooks)` drives a backend only through `Books`: numbering under concurrency, refused commands leaving no trace, idempotent retries, credits, settings, paging, tenant isolation, and event replay.
 
 ### The tenant log is gapless, and that costs throughput
@@ -130,6 +132,8 @@ Each item is reproducible from the repository (`pnpm -r test` from the root).
 - **Mutations.** `node scripts/mutate.mjs` in `packages/core` plants known bugs one at a time (tax a unit high, allocation dropping its residual, a sale and its return zeroing out, overpayment accepted, a refused issue keeping its number, reversed payments still counted, a retried payment applied twice, and others) and requires the suite to fail on each.
 - **Golden outputs.** The output of every published policy is pinned in `test/golden`.
 - **Independent reviews.** Two adversarial reviews by another model found real defects: a sale and its return zeroing out, a credit that could be reversed while its note stood, credit notes created around their invoice, retried payments refused, dates that crashed, and numbers unique only per series. Each is fixed and has a test.
+- **A fresh-developer trial.** An agent that had never seen the code integrated it from the READMEs alone, into a Node script and a Cloudflare Worker with tests. Both worked. Its friction log drove the compiled build, credit notes taking short lines, the boundary checks, the error messages and the Cloudflare README.
+- **Packed and installed.** `pnpm pack` tarballs installed into an empty project outside the repository; the quick start runs under plain `node`, and core's declarations typecheck in a consumer.
 - **Speed.** One run on an Apple M4 with Node 24: `compute` takes a median 0.8 ms for 1,000 lines and 8.9 ms for 10,000, about 0.9 µs per line. Nothing guards this number.
 
 ## Decisions
@@ -137,7 +141,7 @@ Each item is reproducible from the repository (`pnpm -r test` from the root).
 - **Own decimal type over decimal.js or Dinero.js.** The core needs about ten operations, and its public types should not belong to another library. The type is 150 lines on bigint, and no amount ever becomes a float.
 - **Library first.** A self-hostable server can come later as a thin wrapper, as GOBL's API service wraps GOBL.
 - **No runtime dependencies, no framework.** Plain functions and plain objects. An Effect or Zod wrapper can be an adapter package.
-- **Erasable TypeScript only.** Node runs the source directly, with no build step to read or debug through.
+- **Erasable TypeScript in the repository, compiled JavaScript on npm.** Inside the workspace, packages point at their source and Node runs it directly. `publishConfig` switches the published entry points to `dist/` (JavaScript plus declarations), because Node refuses to strip types inside `node_modules`.
 - **Apache-2.0.** It includes a patent grant, is acceptable to enterprises, and is used by Kill Bill, Polar and GOBL. AGPL suits a hosted product, not a library people embed.
 
 ## Known gaps

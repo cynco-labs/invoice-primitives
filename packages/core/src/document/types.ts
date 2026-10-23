@@ -20,6 +20,7 @@ export interface Party {
 }
 
 export interface Address {
+    /** Street lines, in order: ["Lot 12, Jalan Ampang", "Level 3"]. */
     lines: readonly string[];
     city?: string;
     postalCode?: string;

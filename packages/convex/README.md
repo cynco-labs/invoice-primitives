@@ -33,14 +33,14 @@ export const issue = mutation({
     args: { id: v.string() },
     returns: v.string(),
     handler: async (ctx, { id }) => {
-        const tenant = await tenantOf(ctx); // your own: derived from ctx.auth, never from args
-        const doc = await invoicing.issue(ctx, tenant, id);
+        const books = invoicing.books(ctx, await tenantOf(ctx)); // tenantOf is yours: from ctx.auth, never from args
+        const doc = await books.issue(id);
         return doc.status === "issued" ? doc.number : "";
     },
 });
 ```
 
-The client offers core's `Books` methods, each with `ctx` and `tenant` first: `configure`, `create`, `update`, `discard`, `issue`, `void`, `settle`, `reverseSettlement`, `requestDelivery`, `completeDelivery`, `credit`, and the queries `get`, `getByNumber`, `events`. Mutations need a mutation or action `ctx`; queries take any `ctx`.
+`invoicing.books(ctx, tenant)` returns core's `Books`, the same object every backend gives, so code written against the root README's quick start runs here unchanged. The client also offers each method directly, with `ctx` and `tenant` first: `configure`, `create`, `update`, `discard`, `issue`, `void`, `settle`, `reverseSettlement`, `requestDelivery`, `completeDelivery`, `credit`, and the queries `get`, `getByNumber`, `events`. Mutations need a mutation or action `ctx`; queries take any `ctx`.
 
 A refused command throws a `ConvexError` whose `data` is core's refusal, `{ code, path, detail }`. It reaches your React client intact if you let it propagate. Use `refusalOf(error)` to read it on the server.
 

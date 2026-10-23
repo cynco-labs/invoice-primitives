@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { Books } from "../books.ts";
 import { balance } from "../document/balance.ts";
 import { evolve } from "../document/execute.ts";
+import type { NewDocument } from "../document/input.ts";
 import type { DocumentState, DraftData, IssuedState } from "../document/types.ts";
 import { InvoiceError, type InvoiceErrorCode } from "../errors.ts";
 
@@ -36,6 +37,23 @@ const refused = async (code: InvoiceErrorCode, action: Promise<unknown>) => {
     expect(error, `expected refusal ${code}`).toBeDefined();
     // A backend may rethrow across a boundary (Convex, RPC); the code must survive.
     expect(error instanceof InvoiceError ? error.code : (error as { data?: { code?: string } })?.data?.code ?? String(error)).toContain(code);
+};
+
+/**
+ * A refusal of malformed input: the code when the backend reports one; a
+ * backend that validates arguments itself (Convex) may refuse earlier with its
+ * own error. Either way nothing is written.
+ */
+const refusedInput = async (books: Books, code: InvoiceErrorCode, action: () => Promise<unknown>) => {
+    const before = await books.events(0, 1000);
+    const error = await action().then(
+        () => undefined,
+        (e: unknown) => e,
+    );
+    expect(error, `expected a refusal (${code})`).toBeDefined();
+    const reported = error instanceof InvoiceError ? error.code : (error as { data?: { code?: string } })?.data?.code;
+    if (reported !== undefined) expect(reported).toBe(code);
+    expect(await books.events(0, 1000)).toEqual(before);
 };
 
 const issued = (s: DocumentState) => {
@@ -297,6 +315,28 @@ export function booksConformance(name: string, makeBooks: () => Promise<Books> |
             await refused("invalid-tax", books.create({ buyer: { name: "A" }, lines: [{ ...line, tax: "vat-20" }] }));
             await refused("invalid-argument", books.create({ buyer: { name: "A" }, lines: [{ ...line, tax: "exempt", taxes: [] }] }));
             expect((await books.create({ id: "ok", buyer: { name: "A" }, lines: [{ ...line, tax: "exempt" }] })).id).toBe("ok");
+        });
+
+        it("a credit note takes the same short lines as create", async () => {
+            const books = await makeBooks();
+            await books.configure({ country: "MY", seller: { name: "Kedai Kopi Sdn Bhd" } });
+            const inv = await books.create({ buyer: { name: "Acme" }, issueDate: "2026-10-23", lines: [{ name: "Consulting", quantity: "10", price: "150.00", tax: "service-8" }] });
+            await books.issue(inv.id);
+            const one = { name: "Consulting (1 hour not delivered)", quantity: "1", price: "150.00", tax: "service-8" };
+            const { invoice, note } = await books.credit(inv.id, { id: "cn", input: { issueDate: "2026-10-30", lines: [one] } });
+            expect(issued(note).data.lines[0]).toMatchObject({ id: "1", taxes: [{ category: "SE", rate: "8" }] });
+            expect(balance(issued(invoice), "2026-10-30").outstanding).toBe("1458.00");
+            await refused("invalid-amount", books.credit(inv.id, { id: "cn2", input: { issueDate: "2026-10-30", lines: [{ ...one, quantity: "-1" }] } }));
+        });
+
+        it("refuses malformed JSON with a path, not a crash", async () => {
+            const books = await makeBooks();
+            await books.configure({ country: "MY", seller: { name: "S" } });
+            const json = (text: string): NewDocument => JSON.parse(text);
+            await refusedInput(books, "invalid-amount", () => books.create(json('{"buyer":{"name":"A"},"lines":[{"name":"x","quantity":10,"price":"1.00","tax":"exempt"}]}')));
+            await refusedInput(books, "missing-field", () => books.create(json('{"buyer":{},"lines":[]}')));
+            await refusedInput(books, "invalid-argument", () => books.create(json('{"buyer":{"name":"A","address":{"street":"Jalan Ampang"}},"lines":[]}')));
+            await refusedInput(books, "invalid-argument", () => books.create(json('{"buyer":{"name":"A"},"lines":{"name":"x"}}')));
         });
 
         it("replaying the event log rebuilds every document exactly", async () => {
