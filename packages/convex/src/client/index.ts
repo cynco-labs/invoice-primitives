@@ -10,7 +10,7 @@
  * as a `ConvexError` whose `data` is `{ code, path, detail }` from core's
  * `InvoiceError`; use `refusalOf` to read it.
  */
-import type { CreditNoteInput, DocumentState, DraftData, Settings, Settlement, StoredEvent } from "@invoice-primitives/core";
+import type { Books, CreditNoteInput, DocumentState, NewDocument, Settings, Settlement, StoredEvent } from "@invoice-primitives/core";
 import type { GenericDataModel, GenericMutationCtx, GenericQueryCtx } from "convex/server";
 import { ConvexError } from "convex/values";
 import type { ComponentApi } from "../component/_generated/component.ts";
@@ -30,21 +30,46 @@ export class Invoicing {
         this.component = component;
     }
 
+    /**
+     * One tenant's books with this ctx: core's `Books`, the same object every
+     * backend gives, so code written against it runs anywhere.
+     */
+    books(ctx: RunMutationCtx & RunQueryCtx, tenant: string): Books {
+        return {
+            configure: async (settings) => {
+                await this.configure(ctx, tenant, settings);
+            },
+            create: (document) => this.create(ctx, tenant, document),
+            update: (id, document) => this.update(ctx, tenant, id, document),
+            discard: (id) => this.discard(ctx, tenant, id),
+            issue: (id) => this.issue(ctx, tenant, id),
+            void: (id, reason) => this.void(ctx, tenant, id, reason),
+            settle: (id, settlement) => this.settle(ctx, tenant, id, settlement),
+            reverseSettlement: (id, settlementId, reason) => this.reverseSettlement(ctx, tenant, id, settlementId, reason),
+            requestDelivery: (id, delivery) => this.requestDelivery(ctx, tenant, id, delivery),
+            completeDelivery: (id, deliveryId, status, detail) => this.completeDelivery(ctx, tenant, id, deliveryId, status, detail),
+            credit: (invoiceId, note) => this.credit(ctx, tenant, invoiceId, note),
+            get: async (id) => (await this.get(ctx, tenant, id)) ?? undefined,
+            events: (after, limit) => this.events(ctx, tenant, after, limit),
+        };
+    }
+
     private scope(tenant: string) {
         return { tenant };
     }
 
     /** The tenant's time zone and numbering (core's `Settings`). Replaces the given ones, keeping the others. */
     configure(ctx: RunMutationCtx, tenant: string, settings: Settings): Promise<null> {
-        return ctx.runMutation(this.component.lib.configure, { tenant, settings });
+        return ctx.runMutation(this.component.lib.configure, { tenant, settings: asValue.settings(settings) });
     }
 
-    create(ctx: RunMutationCtx, tenant: string, id: string, data: DraftData): Promise<DocumentState> {
-        return ctx.runMutation(this.component.lib.create, { ...this.scope(tenant), id, data: asValue.draft(data) });
+    /** A new draft. Fields the tenant's settings supply may be left out; the id is generated when absent. */
+    create(ctx: RunMutationCtx, tenant: string, document: NewDocument): Promise<DocumentState> {
+        return ctx.runMutation(this.component.lib.create, { ...this.scope(tenant), document: asValue.document(document) });
     }
 
-    update(ctx: RunMutationCtx, tenant: string, id: string, data: DraftData): Promise<DocumentState> {
-        return ctx.runMutation(this.component.lib.update, { ...this.scope(tenant), id, data: asValue.draft(data) });
+    update(ctx: RunMutationCtx, tenant: string, id: string, document: NewDocument): Promise<DocumentState> {
+        return ctx.runMutation(this.component.lib.update, { ...this.scope(tenant), id, document: asValue.document(document) });
     }
 
     discard(ctx: RunMutationCtx, tenant: string, id: string): Promise<DocumentState> {

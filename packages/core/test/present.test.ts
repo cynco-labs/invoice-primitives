@@ -8,7 +8,7 @@ const nb = (s: string) => s.replace(/ /g, "\u00a0");
 
 const issuedSample = async (overrides: Partial<DraftData> = {}) => {
     const books = createMemoryBooks({ registry: createRegistry(bundledPacks), timeZone: "Asia/Kuala_Lumpur" });
-    await books.create("a", sampleInvoice(overrides));
+    await books.create({ id: "a", ...sampleInvoice(overrides) });
     await books.issue("a");
     await books.settle("a", { id: "p1", kind: "payment", amount: "771.47", date: "2026-10-25" });
     return (await books.get("a")) as IssuedState;
@@ -65,7 +65,7 @@ describe("present", () => {
 
     it("shows a credit note as applied, with the number of the invoice it corrects", async () => {
         const books = createMemoryBooks({ registry: createRegistry(bundledPacks), timeZone: "Asia/Kuala_Lumpur" });
-        await books.create("inv", sampleInvoice());
+        await books.create({ id: "inv", ...sampleInvoice() });
         await books.issue("inv");
         const { note } = await books.credit("inv", { id: "cn", input: { issueDate: "2026-10-30", lines: [{ id: "1", name: "x", quantity: "1", price: "10.00", taxes: [{ category: "E" }] }] } });
         const view = present(note as IssuedState, { locale: "en-MY", asOf: "2026-10-30" });

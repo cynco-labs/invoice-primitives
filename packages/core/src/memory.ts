@@ -4,32 +4,32 @@
  *
  *   in one transaction: load the state → (allocate a number) → execute → save state and events
  */
-import { checkPage, checkSettings, type Books, type Settings, type StoredEvent } from "./books.ts";
+import { checkPage, type Books, type StoredEvent } from "./books.ts";
 import { creditInvoice, creditNoteData } from "./document/credit.ts";
 import { execute, numberingFor, type Context } from "./document/execute.ts";
+import { checkSettings, contextFor, expand, type Settings } from "./document/input.ts";
+import { createRegistry, type Registry } from "./pack.ts";
+import { bundledPacks } from "./packs/index.ts";
 import type { Command, DocumentEvent, DocumentState } from "./document/types.ts";
 import { InvoiceError } from "./errors.ts";
 
 export interface BooksConfig extends Settings {
-    registry: Context["registry"];
+    /** The country packs. Defaults to the bundled ones. */
+    registry?: Registry;
     /** The clock; tests pin it. */
     now?: () => string;
 }
 
-export function createMemoryBooks(config: BooksConfig): Books {
+export function createMemoryBooks(config: BooksConfig = {}): Books {
+    const { registry = createRegistry(bundledPacks), now, ...initial } = config;
     let docs = new Map<string, DocumentState>();
     let sequences = new Map<string, number>();
     let numbers = new Map<string, string>();
     const log: StoredEvent[] = [];
-    checkSettings(config);
-    let settings: Settings = { timeZone: config.timeZone ?? "UTC", ...(config.numbering && { numbering: config.numbering }) };
+    checkSettings(initial, registry);
+    let settings: Settings = initial;
 
-    const context = (): Context => ({
-        now: config.now?.() ?? new Date().toISOString(),
-        timeZone: settings.timeZone ?? "UTC",
-        registry: config.registry,
-        ...(settings.numbering && { numbering: settings.numbering }),
-    });
+    const context = (): Context => contextFor(settings, registry, now?.() ?? new Date().toISOString());
 
     /** Runs `fn` atomically: on a throw, documents, sequences and the log are as they were. */
     const transaction = async <T>(fn: (ctx: Context) => T): Promise<T> => {
@@ -64,10 +64,10 @@ export function createMemoryBooks(config: BooksConfig): Books {
         );
     };
 
-    const run = (id: string, command: Command) =>
+    const run = (id: string, command: Command | ((ctx: Context) => Command)) =>
         transaction((ctx) => {
             const before = docs.get(id);
-            const { state, events } = execute(before, command, ctx);
+            const { state, events } = execute(before, typeof command === "function" ? command(ctx) : command, ctx);
             save(ctx, before, state, events);
             if (!state) throw new InvoiceError("not-found", "id", `no document ${id}`);
             return state;
@@ -75,11 +75,14 @@ export function createMemoryBooks(config: BooksConfig): Books {
 
     return {
         configure: async (next) => {
-            checkSettings(next);
+            checkSettings(next, registry);
             settings = { ...settings, ...next };
         },
-        create: (id, data) => run(id, { type: "create", id, data }),
-        update: (id, data) => run(id, { type: "update", data }),
+        create: (document) => {
+            const id = document.id ?? crypto.randomUUID();
+            return run(id, (ctx) => ({ type: "create", id, data: expand(document, ctx) }));
+        },
+        update: (id, document) => run(id, (ctx) => ({ type: "update", data: expand(document, ctx) })),
         discard: (id) => run(id, { type: "discard" }),
         issue: (id) =>
             transaction((ctx) => {

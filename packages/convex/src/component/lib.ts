@@ -16,6 +16,8 @@ import {
     bundledPacks,
     checkPage,
     checkSettings,
+    contextFor,
+    expand,
     createRegistry,
     creditInvoice,
     creditNoteData,
@@ -35,7 +37,7 @@ import {
     vDeliveryRequest,
     vDeliveryStatus,
     vDocumentState,
-    vDraftData,
+    vNewDocument,
     vNewSettlement,
     vSettings,
     vStoredEvent,
@@ -77,17 +79,17 @@ function settingsOf(ctx: QueryCtx, tenant: string): Promise<Doc<"settings"> | nu
     return ctx.db.query("settings").withIndex("by_tenant", (q) => q.eq("tenant", tenant)).unique();
 }
 
+/** A settings row without its system fields: core's `Settings`. */
+function settingsFrom({ _id, _creationTime, tenant, ...settings }: Doc<"settings">) {
+    return settings;
+}
+
 /** One mutation's view of a tenant's books: what `memory.ts` keeps in maps, here read and written through indexes. */
 async function books(ctx: MutationCtx, tenant: string) {
     checkTenant(tenant);
-    const settings = await settingsOf(ctx, tenant);
+    const row = await settingsOf(ctx, tenant);
     // Date is fixed for the whole mutation in Convex, so every event in it shares one instant.
-    const context: Context = {
-        now: new Date().toISOString(),
-        timeZone: settings?.timeZone ?? "UTC",
-        registry,
-        ...(settings?.numbering && { numbering: settings.numbering }),
-    };
+    const context: Context = contextFor(row ? settingsFrom(row) : {}, registry, new Date().toISOString());
     let head: number | undefined;
 
     /**
@@ -159,11 +161,11 @@ const scope = { tenant: v.string() };
 type Scope = { tenant: string };
 
 /** Runs a command that needs no number: load → execute → save. */
-function run(ctx: MutationCtx, scope: Scope, id: string, command: Command) {
+function run(ctx: MutationCtx, scope: Scope, id: string, command: Command | ((context: Context) => Command)) {
     return refusals(async () => {
         const b = await books(ctx, scope.tenant);
         const row = await b.load(id);
-        const { state, events } = execute(row?.state, command, b.context);
+        const { state, events } = execute(row?.state, typeof command === "function" ? command(b.context) : command, b.context);
         await b.save(row, state, events);
         if (!state) throw new InvoiceError("not-found", "id", `no document ${id}`);
         return asValue.state(state);
@@ -177,27 +179,29 @@ export const configure = mutation({
     handler: (ctx, { tenant, settings }) =>
         refusals(async () => {
             checkTenant(tenant);
-            checkSettings(settings);
+            checkSettings(settings, registry);
             const row = await settingsOf(ctx, tenant);
-            const timeZone = settings.timeZone ?? row?.timeZone;
-            const numbering = settings.numbering ?? row?.numbering;
-            const next = { tenant, ...(timeZone !== undefined && { timeZone }), ...(numbering !== undefined && { numbering }) };
+            const next = { tenant, ...(row && settingsFrom(row)), ...settings };
             if (row) await ctx.db.replace("settings", row._id, next);
             else await ctx.db.insert("settings", next);
             return null;
         }),
 });
 
+/** A new draft from a short document; its id is generated when absent. */
 export const create = mutation({
-    args: { ...scope, id: v.string(), data: vDraftData },
+    args: { ...scope, document: vNewDocument },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, { type: "create", id: a.id, data: a.data }),
+    handler: (ctx, a) => {
+        const id = a.document.id ?? crypto.randomUUID();
+        return run(ctx, a, id, (context) => ({ type: "create", id, data: expand(a.document, context) }));
+    },
 });
 
 export const update = mutation({
-    args: { ...scope, id: v.string(), data: vDraftData },
+    args: { ...scope, id: v.string(), document: vNewDocument },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, { type: "update", data: a.data }),
+    handler: (ctx, a) => run(ctx, a, a.id, (context) => ({ type: "update", data: expand(a.document, context) })),
 });
 
 export const discard = mutation({

@@ -1,6 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
-import { vDocumentEvent, vDocumentState, vNumbering } from "./validators.ts";
+import { vDocumentEvent, vDocumentState, vNumbering, vParty } from "./validators.ts";
 
 export default defineSchema({
     /** The current state of each document. `number` is copied out of `state` for lookup by number. */
@@ -26,6 +26,9 @@ export default defineSchema({
     /** Each tenant's settings (core's `Settings`). */
     settings: defineTable({
         tenant: v.string(),
+        country: v.optional(v.string()),
+        seller: v.optional(vParty),
+        currency: v.optional(v.string()),
         timeZone: v.optional(v.string()),
         numbering: v.optional(vNumbering),
     }).index("by_tenant", ["tenant"]),

@@ -35,6 +35,7 @@ import type {
     DocumentState,
     DraftData,
     IssuedState,
+    Party,
     Settlement,
     VoidState,
 } from "./types.ts";
@@ -46,6 +47,8 @@ export interface Context {
     timeZone: string;
     registry: Registry;
     numbering?: Numbering;
+    /** What a short document (`NewDocument`) leaves out. Built by `contextFor` from the tenant's settings. */
+    defaults?: { policy?: string; currency?: string; seller?: Party };
 }
 
 /**

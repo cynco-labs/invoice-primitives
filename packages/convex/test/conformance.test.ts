@@ -28,8 +28,8 @@ function books(tenant: string): Books {
         configure: async (settings) => {
             await t.run((ctx) => invoicing.configure(ctx, tenant, settings));
         },
-        create: (id, data) => t.run((ctx) => invoicing.create(ctx, tenant, id, data)),
-        update: (id, data) => t.run((ctx) => invoicing.update(ctx, tenant, id, data)),
+        create: (document) => t.run((ctx) => invoicing.create(ctx, tenant, document)),
+        update: (id, document) => t.run((ctx) => invoicing.update(ctx, tenant, id, document)),
         discard: (id) => t.run((ctx) => invoicing.discard(ctx, tenant, id)),
         issue: (id) => t.run((ctx) => invoicing.issue(ctx, tenant, id)),
         void: (id, reason) => t.run((ctx) => invoicing.void(ctx, tenant, id, reason)),
@@ -54,8 +54,8 @@ describe("convex: tenants and the component boundary", () => {
     it("keeps each tenant's documents, numbers and log apart", async () => {
         const a = books("isolation-a");
         const b = books("isolation-b");
-        await a.create("same-id", sampleInvoice());
-        await b.create("same-id", sampleInvoice({ note: "b" }));
+        await a.create({ id: "same-id", ...sampleInvoice() });
+        await b.create({ id: "same-id", ...sampleInvoice({ note: "b" }) });
         await a.issue("same-id");
         const issuedB = await b.issue("same-id");
         expect(issuedB.status === "issued" && issuedB.number).toBe("INV-2026-00001");
@@ -67,7 +67,7 @@ describe("convex: tenants and the component boundary", () => {
 
     it("finds a document by its number", async () => {
         const a = books("by-number");
-        await a.create("x", sampleInvoice());
+        await a.create({ id: "x", ...sampleInvoice() });
         await a.issue("x");
         expect((await t.run((ctx) => invoicing.getByNumber(ctx, "by-number", "INV-2026-00001")))?.id).toBe("x");
         expect(await t.run((ctx) => invoicing.getByNumber(ctx, "by-number", "INV-2026-00002"))).toBeNull();
@@ -75,16 +75,27 @@ describe("convex: tenants and the component boundary", () => {
 
     it("refuses with core's code, path and detail as ConvexError data", async () => {
         const error = await books("refusals")
-            .create("a", sampleInvoice({ currency: "ABC" }))
+            .create({ id: "a", ...sampleInvoice({ currency: "ABC" }) })
             .then(() => undefined, (e: unknown) => e);
         expect(refusalOf(error)).toMatchObject({ code: "unknown-currency", path: "data.currency" });
     });
 
     it("refuses an empty tenant, a bad time zone and an unbounded page", async () => {
         const codeOf = (p: Promise<unknown>) => p.then(() => undefined, (e: unknown) => refusalOf(e)?.path);
-        expect(await codeOf(books("").create("a", sampleInvoice()))).toBe("tenant");
+        expect(await codeOf(books("").create({ id: "a", ...sampleInvoice() }))).toBe("tenant");
         expect(await codeOf(books("tz").configure({ timeZone: "Mars/Olympus" }))).toBe("timeZone");
         expect(await codeOf(books("paging").events(0, 1001))).toBe("limit");
         expect(await codeOf(books("paging").events(-1))).toBe("after");
+    });
+
+    it("gives the same Books object an app's own mutation can use", async () => {
+        const id = await t.run(async (ctx) => {
+            const books = invoicing.books(ctx, "books-api");
+            await books.configure({ country: "MY", seller: { name: "Kedai Kopi Sdn Bhd" } });
+            const draft = await books.create({ buyer: { name: "Acme" }, lines: [{ name: "Consulting", quantity: "1", price: "100.00", tax: "service-8" }] });
+            const doc = await books.issue(draft.id);
+            return doc.status === "issued" ? doc.figures.totals.payable : "";
+        });
+        expect(id).toBe("108.00");
     });
 });

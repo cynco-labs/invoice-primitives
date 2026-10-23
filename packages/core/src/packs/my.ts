@@ -1,6 +1,9 @@
 import type { CountryPack } from "../pack.ts";
 
 const HOURS_72 = 72 * 60 * 60 * 1000;
+/** A secondary source (Grant Thornton Malaysia) on the SST rates from 1 July 2025; not the Customs order itself. */
+const SST_2025 = "https://www.grantthornton.com.my/insights/Tax/revision-of-sales-tax-rates-and-expansion-of-scope-for-service-tax/";
+const PINT_MY = "https://docs.peppol.eu/poac/my/pint-my/bis/";
 const HALF_UP = { amounts: "half-away-from-zero", tax: "half-away-from-zero" } as const;
 
 /**
@@ -32,6 +35,26 @@ export const my: CountryPack = {
         O: { label: "Outside scope of tax", levies: false },
     },
     rules: [],
+    defaults: { policy: "pint", currency: "MYR", timeZone: "Asia/Kuala_Lumpur" },
+    taxes: {
+        "sales-10": { label: "Sales tax 10%", taxes: [{ category: "SA", rate: "10" }], source: SST_2025, checked: "2026-10-23" },
+        "sales-5": { label: "Sales tax 5%", taxes: [{ category: "SA", rate: "5" }], source: SST_2025, checked: "2026-10-23" },
+        "service-8": { label: "Service tax 8%", taxes: [{ category: "SE", rate: "8" }], source: SST_2025, checked: "2026-10-23" },
+        "service-6": {
+            label: "Service tax 6% (food and beverage, telecommunications, logistics, parking...)",
+            taxes: [{ category: "SE", rate: "6" }],
+            source: SST_2025,
+            checked: "2026-10-23",
+        },
+        tourism: {
+            label: "Tourism tax, RM10 per room per night",
+            taxes: [{ category: "TTX", perUnit: "10.00" }],
+            source: "https://www.ttgasia.com/2017/07/27/flat-rate-for-tourism-tax-malaysians-exempted/",
+            checked: "2026-10-23",
+        },
+        exempt: { label: "Exempt", taxes: [{ category: "E" }], source: PINT_MY, checked: "2026-10-23" },
+        "outside-scope": { label: "Outside the scope of tax", taxes: [{ category: "O" }], source: PINT_MY, checked: "2026-10-23" },
+    },
     canVoid(_document, now, { validatedAt }) {
         if (!validatedAt) return { allowed: true };
         return Date.parse(now) - Date.parse(validatedAt) <= HOURS_72

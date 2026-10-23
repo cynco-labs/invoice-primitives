@@ -17,7 +17,9 @@ import {
     bundledPacks,
     checkPage,
     checkSettings,
+    contextFor,
     createRegistry,
+    expand,
     creditInvoice,
     creditNoteData,
     execute,
@@ -29,7 +31,7 @@ import {
     type CreditNoteInput,
     type DocumentEvent,
     type DocumentState,
-    type DraftData,
+    type NewDocument,
     type InvoiceErrorCode,
     type Settings,
     type Settlement,
@@ -75,7 +77,7 @@ export class InvoicingBooks extends DurableObject<unknown> {
      */
     configure(settings: Settings): Outcome<null> {
         return this.transaction(() => {
-            checkSettings(settings);
+            checkSettings(settings, registry);
             const next = { ...this.settings(), ...Object.fromEntries(Object.entries(settings).filter(([, v]) => v !== undefined)) };
             this.ctx.storage.sql.exec(
                 "INSERT INTO settings (key, value) VALUES ('tenant', ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
@@ -90,11 +92,12 @@ export class InvoicingBooks extends DurableObject<unknown> {
         return row ? (JSON.parse(row.value) as Settings) : {};
     }
 
-    create(id: string, data: DraftData) {
-        return this.run(id, { type: "create", id, data });
+    create(document: NewDocument) {
+        const id = document.id ?? crypto.randomUUID();
+        return this.run(id, (ctx) => ({ type: "create", id, data: expand(document, ctx) }));
     }
-    update(id: string, data: DraftData) {
-        return this.run(id, { type: "update", data });
+    update(id: string, document: NewDocument) {
+        return this.run(id, (ctx) => ({ type: "update", data: expand(document, ctx) }));
     }
     discard(id: string) {
         return this.run(id, { type: "discard" });
@@ -155,10 +158,10 @@ export class InvoicingBooks extends DurableObject<unknown> {
         });
     }
 
-    private run(id: string, command: Command): Outcome<DocumentState> {
+    private run(id: string, command: Command | ((ctx: Context) => Command)): Outcome<DocumentState> {
         return this.transaction((ctx) => {
             const before = this.load(id);
-            const { state, events } = execute(before, command, ctx);
+            const { state, events } = execute(before, typeof command === "function" ? command(ctx) : command, ctx);
             this.save(ctx, before, state, events);
             if (!state) throw new InvoiceError("not-found", "id", `no document ${id}`);
             return state;
@@ -170,8 +173,7 @@ export class InvoicingBooks extends DurableObject<unknown> {
      * because an exception thrown across RPC is logged as a crash.
      */
     private transaction<T>(fn: (ctx: Context) => T): Outcome<T> {
-        const { timeZone = "UTC", numbering } = this.settings();
-        const ctx: Context = { now: new Date().toISOString(), timeZone, registry, ...(numbering && { numbering }) };
+        const ctx = contextFor(this.settings(), registry, new Date().toISOString());
         try {
             return { ok: true, value: this.ctx.storage.transactionSync(() => fn(ctx)) };
         } catch (e) {
@@ -242,8 +244,8 @@ export function booksFor(namespace: DurableObjectNamespace<InvoicingBooks>, tena
         configure: async (settings) => {
             await call(stub.configure(settings));
         },
-        create: (id, data) => call(stub.create(id, data)),
-        update: (id, data) => call(stub.update(id, data)),
+        create: (document) => call(stub.create(document)),
+        update: (id, document) => call(stub.update(id, document)),
         discard: (id) => call(stub.discard(id)),
         issue: (id) => call(stub.issue(id)),
         void: (id, reason) => call(stub.void(id, reason)),

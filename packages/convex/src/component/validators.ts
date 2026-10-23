@@ -6,7 +6,7 @@
  * since Convex values have no readonly arrays. `test/types.ts` fails to
  * typecheck if a validator and its core type differ in anything else.
  */
-import type { CreditNoteInput, DocumentEvent, DocumentState, DraftData } from "@invoice-primitives/core";
+import type { CreditNoteInput, DocumentEvent, DocumentState, DraftData, NewDocument, Settings } from "@invoice-primitives/core";
 import { v, type Infer } from "convex/values";
 
 const optionalString = v.optional(v.string());
@@ -40,6 +40,21 @@ export const vLine = v.object({
     allowances: v.optional(v.array(vAdjustment)),
     charges: v.optional(v.array(vAdjustment)),
     taxes: v.array(vTax),
+    name: v.string(),
+    description: optionalString,
+    unit: optionalString,
+});
+
+/** A line of a short document (core's `NewLine`): its id and taxes may be left out, its tax named. */
+export const vNewLine = v.object({
+    id: optionalString,
+    quantity: v.string(),
+    price: v.string(),
+    baseQuantity: optionalString,
+    allowances: v.optional(v.array(vAdjustment)),
+    charges: v.optional(v.array(vAdjustment)),
+    taxes: v.optional(v.array(vTax)),
+    tax: optionalString,
     name: v.string(),
     description: optionalString,
     unit: optionalString,
@@ -80,6 +95,20 @@ export const vDraftData = v.object({
     policy: v.string(),
     currency: v.string(),
     seller: vParty,
+    buyer: vParty,
+    corrects: optionalString,
+    correctsNumber: optionalString,
+});
+
+/** Core's `NewDocument`: a buyer and lines; the tenant's settings supply the rest. */
+export const vNewDocument = v.object({
+    ...noteFields,
+    lines: v.array(vNewLine),
+    id: optionalString,
+    kind: v.optional(v.union(v.literal("invoice"), v.literal("credit-note"))),
+    policy: optionalString,
+    currency: optionalString,
+    seller: v.optional(vParty),
     buyer: vParty,
     corrects: optionalString,
     correctsNumber: optionalString,
@@ -185,6 +214,17 @@ export const vStoredEvent = v.object({
     event: vDocumentEvent,
 });
 
+
+const vNumberFormat = v.object({ prefix: v.string(), digits: v.number() });
+export const vNumbering = v.object({ invoice: vNumberFormat, "credit-note": vNumberFormat });
+export const vSettings = v.object({
+    country: optionalString,
+    seller: v.optional(vParty),
+    currency: optionalString,
+    timeZone: optionalString,
+    numbering: v.optional(vNumbering),
+});
+
 /**
  * Core values as Convex values. Core's types mark arrays `readonly`; Convex's
  * `Value` type has no readonly arrays. The JSON is identical, so each of these
@@ -196,9 +236,7 @@ export const asValue = {
     state: (state: DocumentState) => state as Infer<typeof vDocumentState>,
     event: (event: DocumentEvent) => event as Infer<typeof vDocumentEvent>,
     draft: (data: DraftData) => data as Infer<typeof vDraftData>,
+    document: (document: NewDocument) => document as Infer<typeof vNewDocument>,
+    settings: (settings: Settings) => settings as Infer<typeof vSettings>,
     creditNote: (input: CreditNoteInput) => input as Infer<typeof vCreditNoteInput>,
 };
-
-const vNumberFormat = v.object({ prefix: v.string(), digits: v.number() });
-export const vNumbering = v.object({ invoice: vNumberFormat, "credit-note": vNumberFormat });
-export const vSettings = v.object({ timeZone: optionalString, numbering: v.optional(vNumbering) });

@@ -3,7 +3,7 @@
  * The core computes; a pack supplies the policies, the tax categories, the
  * rules an issued document meets, and when an issued document may be voided.
  */
-import type { Policy } from "./calc/model.ts";
+import type { Policy, TaxInput } from "./calc/model.ts";
 import type { DraftData, Figures, IssuedState } from "./document/types.ts";
 import { InvoiceError } from "./errors.ts";
 
@@ -21,6 +21,15 @@ export interface Rule {
     check(document: { data: DraftData; figures: Figures }): boolean;
 }
 
+/** A tax a line can name instead of spelling out: `tax: "service-8"`. */
+export interface NamedTax {
+    label: string;
+    taxes: readonly TaxInput[];
+    /** Where the rate is written down, and the day someone last checked it. Rates change. */
+    source: string;
+    checked: string;
+}
+
 export type VoidDecision = { allowed: true } | { allowed: false; reason: string };
 
 export interface CountryPack {
@@ -30,13 +39,18 @@ export interface CountryPack {
     /** Every tax category a line may carry under this pack's policies. */
     taxCategories: Readonly<Record<string, TaxCategory>>;
     rules: readonly Rule[];
+    /** What a tenant in this country gets without configuring it. `policy` is a key of `policies`. */
+    defaults: { policy: string; currency?: string; timeZone?: string };
+    /** Taxes a line can name with `tax`. */
+    taxes: Readonly<Record<string, NamedTax>>;
     /** `validatedAt`: when a clearance authority accepted the document, if one did. */
     canVoid(document: IssuedState, now: string, context: { validatedAt?: string }): VoidDecision;
 }
 
-/** Policy ids resolved to their policy and the pack that publishes it. */
+/** Policy ids resolved to their policy and the pack that publishes it; countries to their pack. */
 export interface Registry {
     resolve(policyId: string): { policy: Policy; pack: CountryPack };
+    country(id: string): CountryPack;
 }
 
 export function createRegistry(packs: readonly CountryPack[]): Registry {
@@ -47,7 +61,13 @@ export function createRegistry(packs: readonly CountryPack[]): Registry {
             byId.set(policy.id, { policy, pack });
         }
     }
+    const countries = new Map(packs.map((p) => [p.id, p]));
     return {
+        country(id) {
+            const pack = countries.get(id);
+            if (!pack) throw new InvoiceError("invalid-argument", "country", `no registered pack for ${id}; packs: ${[...countries.keys()].join(", ")}`);
+            return pack;
+        },
         resolve(policyId) {
             const found = byId.get(policyId);
             if (!found) throw new InvoiceError("unknown-policy", "data.policy", `no registered pack publishes policy ${policyId}`);

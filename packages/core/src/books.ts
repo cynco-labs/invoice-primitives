@@ -4,9 +4,9 @@
  * suite (`@invoice-primitives/core/testing`). Each method is one transaction.
  */
 import type { CreditNoteInput } from "./document/credit.ts";
-import { defaultNumbering, type Numbering } from "./document/execute.ts";
+import type { NewDocument, Settings } from "./document/input.ts";
 import { InvoiceError } from "./errors.ts";
-import type { DocumentEvent, DocumentState, DraftData, Settlement } from "./document/types.ts";
+import type { DocumentEvent, DocumentState, Settlement } from "./document/types.ts";
 
 export interface StoredEvent {
     /** Position in the tenant's log, from 1, with no gaps. */
@@ -18,19 +18,13 @@ export interface StoredEvent {
     event: DocumentEvent;
 }
 
-/** A tenant's settings. Every backend stores them per tenant. */
-export interface Settings {
-    /** The seller's IANA time zone: an issue date is the seller's calendar date. Default "UTC". */
-    timeZone?: string;
-    /** How numbers read. Default INV-{yyyy}-00001 and CN-{yyyy}-00001. */
-    numbering?: Numbering;
-}
-
 export interface Books {
     /** Replaces the given settings, keeping the others. */
     configure(settings: Settings): Promise<void>;
-    create(id: string, data: DraftData): Promise<DocumentState>;
-    update(id: string, data: DraftData): Promise<DocumentState>;
+    /** A new draft. Fields the tenant's settings supply may be left out; `id` is generated when absent. */
+    create(document: NewDocument): Promise<DocumentState>;
+    /** Replaces a draft's content, expanded the same way as `create`. */
+    update(id: string, document: NewDocument): Promise<DocumentState>;
     discard(id: string): Promise<DocumentState>;
     /** Allocates the next number in the document's series, in the same transaction. */
     issue(id: string): Promise<DocumentState>;
@@ -42,25 +36,6 @@ export interface Books {
     credit(invoiceId: string, note: { id: string; input: CreditNoteInput }): Promise<{ invoice: DocumentState; note: DocumentState }>;
     get(id: string): Promise<DocumentState | undefined>;
     events(after?: number, limit?: number): Promise<StoredEvent[]>;
-}
-
-/** Refuses settings a backend must not store. */
-export function checkSettings(settings: Settings): void {
-    if (settings.timeZone !== undefined) {
-        try {
-            new Intl.DateTimeFormat("en", { timeZone: settings.timeZone });
-        } catch {
-            throw new InvoiceError("invalid-argument", "timeZone", `${settings.timeZone} is not an IANA time zone`);
-        }
-    }
-    if (settings.numbering !== undefined) {
-        for (const kind of Object.keys(defaultNumbering) as (keyof Numbering)[]) {
-            const format = settings.numbering[kind];
-            if (!format || typeof format.prefix !== "string" || !(Number.isInteger(format.digits) && format.digits >= 1 && format.digits <= 12)) {
-                throw new InvoiceError("invalid-argument", `numbering.${kind}`, "a prefix and 1 to 12 digits");
-            }
-        }
-    }
 }
 
 /** The largest page `events` returns. */

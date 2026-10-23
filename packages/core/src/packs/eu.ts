@@ -1,5 +1,6 @@
 import type { CountryPack } from "../pack.ts";
 
+const UNCL5305 = "https://docs.peppol.eu/poacc/billing/3.0/codelist/UNCL5305/";
 const HALF_UP = { amounts: "half-away-from-zero", tax: "half-away-from-zero" } as const;
 
 /** EN 16931 with the UNCL5305 categories. */
@@ -20,5 +21,15 @@ export const eu: CountryPack = {
         M: { label: "Tax for production, services and importation in Ceuta and Melilla", levies: true },
     },
     rules: [],
+    // Rates differ by member state, so the EU pack names only the categories that levy nothing.
+    defaults: { policy: "en16931" },
+    taxes: {
+        exempt: { label: "Exempt", taxes: [{ category: "E", rate: "0" }], source: UNCL5305, checked: "2026-10-23" },
+        zero: { label: "Zero rated", taxes: [{ category: "Z", rate: "0" }], source: UNCL5305, checked: "2026-10-23" },
+        "reverse-charge": { label: "Reverse charge", taxes: [{ category: "AE", rate: "0" }], source: UNCL5305, checked: "2026-10-23" },
+        "intra-community": { label: "Intra-community supply", taxes: [{ category: "K", rate: "0" }], source: UNCL5305, checked: "2026-10-23" },
+        export: { label: "Export outside the EU", taxes: [{ category: "G", rate: "0" }], source: UNCL5305, checked: "2026-10-23" },
+        "outside-scope": { label: "Outside the scope of tax", taxes: [{ category: "O" }], source: UNCL5305, checked: "2026-10-23" },
+    },
     canVoid: () => ({ allowed: false, reason: "EN 16931 has no voiding; issue a credit note (document type 381)" }),
 };
