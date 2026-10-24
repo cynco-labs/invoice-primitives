@@ -1,7 +1,7 @@
 /**
  * Invoicing on Cloudflare: one Durable Object per tenant, holding that
- * tenant's documents, number sequences and event log in its own SQLite
- * database. The object is a `Store` for core's `createBooks`, which runs
+ * tenant's settings, documents, number sequences and event log in its own
+ * SQLite database. The object is a `Store` for core's `createBooks`, which runs
  * every rule; this file only reads and writes rows.
  *
  * Every SQL statement inside `ctx.storage.transaction` belongs to that
