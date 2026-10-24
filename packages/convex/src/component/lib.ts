@@ -1,190 +1,224 @@
 /**
- * The component's API: core's `Books`, one Convex mutation per command.
+ * The component's API: core's `Books`, one Convex function per method, on a
+ * `Store` over this component's tables. Core runs every rule; this file only
+ * reads and writes rows.
  *
- * Every mutation follows `memory.ts` from core:
- *
- *   in one transaction: load the state → (allocate a number) → execute → save state and events
- *
- * A Convex mutation is that transaction. Anything thrown (a refused command
+ * A Convex mutation is the transaction. Anything thrown (a refused command
  * included) rolls back every write the mutation made, so a refused issue
  * consumes no number and leaves no hole in the log. Two mutations that read
  * the same sequence or log head conflict under OCC, and Convex reruns the
  * loser against the winner's writes, so numbers and log positions are unique
  * and gapless.
  */
-import {
-    bundledPacks,
-    checkPage,
-    checkSettings,
-    contextFor,
-    expand,
-    newId,
-    createRegistry,
-    creditInvoice,
-    creditNoteData,
-    execute,
-    InvoiceError,
-    numberingFor,
-    type Command,
-    type Context,
-    type DocumentEvent,
-    type DocumentState,
-} from "@invoice-primitives/core";
-import { ConvexError, v } from "convex/values";
-import type { Doc } from "./_generated/dataModel.ts";
+import { InvoiceError, type Books, type Refusal } from "@invoice-primitives/core";
+import { createBooks, sameListing, type ListFilter, type Listing, type Reader, type Store, type Transaction } from "@invoice-primitives/core/backend";
+import type { GenericDatabaseWriter, IndexRange } from "convex/server";
+import { ConvexError, v, type Infer } from "convex/values";
+import type { DataModel, Id } from "./_generated/dataModel.ts";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server.ts";
 import {
+    asValue,
+    vCountryPack,
     vCreditNoteInput,
     vDeliveryRequest,
     vDeliveryStatus,
     vDocumentState,
+    vListPage,
+    vListQuery,
     vNewDocument,
     vNewSettlement,
     vSettings,
     vStoredEvent,
-    asValue,
 } from "./validators.ts";
 
-const registry = createRegistry(bundledPacks);
-
-
-/** What a refusal carries across the component boundary: core's `InvoiceError`, as data. */
-export type Refusal = { code: string; path: string; detail: string };
-
-function refuse(code: string, path: string, detail: string): never {
-    throw new ConvexError<Refusal>({ code, path, detail });
-}
+export type { Refusal } from "@invoice-primitives/core";
 
 /** Rethrows core's refusals as `ConvexError`s, whose data survives the trip to the app and to its clients. */
 async function refusals<T>(fn: () => Promise<T>): Promise<T> {
     try {
         return await fn();
     } catch (e) {
-        if (e instanceof InvoiceError) refuse(e.code, e.path, e.detail);
+        if (e instanceof InvoiceError) throw new ConvexError<Refusal>(e.toJSON());
         throw e;
     }
 }
 
-function checkTenant(tenant: string): void {
-    if (!tenant) refuse("invalid-argument", "tenant", "a tenant is a non-empty string");
+/** Listings a page may read, when the filter is narrower than the index it reads. */
+const MAX_SCAN = 2000;
+
+/**
+ * Documents or events one function loads: at core's MAX_DOCUMENT_BYTES each,
+ * 16 stay within a function's read budget whatever the documents weigh.
+ */
+const MAX_DOCUMENTS = 16;
+
+/** The listings index that narrows `f` most, newest first. */
+function scan(ctx: QueryCtx, tenant: string, f: ListFilter) {
+    const below = <R extends IndexRange & { lt(field: "seq", value: number): IndexRange }>(range: R): IndexRange =>
+        f.before === undefined ? range : range.lt("seq", f.before);
+    const listings = ctx.db.query("listings");
+    if (f.customer !== undefined) {
+        const customer = f.customer;
+        return listings.withIndex("by_tenant_and_customer_and_seq", (q) => below(q.eq("tenant", tenant).eq("customer", customer))).order("desc");
+    }
+    if (f.stage.op === "=") {
+        const stage = f.stage.value;
+        return listings.withIndex("by_tenant_and_stage_and_seq", (q) => below(q.eq("tenant", tenant).eq("stage", stage))).order("desc");
+    }
+    if (f.kind !== undefined) {
+        const kind = f.kind;
+        return listings.withIndex("by_tenant_and_kind_and_seq", (q) => below(q.eq("tenant", tenant).eq("kind", kind))).order("desc");
+    }
+    return listings.withIndex("by_tenant_and_seq", (q) => below(q.eq("tenant", tenant))).order("desc");
 }
 
-function load(ctx: QueryCtx, tenant: string, documentId: string): Promise<Doc<"documents"> | null> {
-    return ctx.db
-        .query("documents")
-        .withIndex("by_tenant_and_documentId", (q) => q.eq("tenant", tenant).eq("documentId", documentId))
-        .unique();
-}
+/**
+ * One tenant's store over a function's `ctx`. A query's store reads; a
+ * mutation's also writes, inside the mutation's own transaction.
+ */
+function store(ctx: QueryCtx | MutationCtx, tenant: string): Store {
+    if (!tenant) throw new InvoiceError("invalid-argument", "tenant", "a tenant is a non-empty string");
+    /** Each document row a command loaded or wrote, so a save need not read it again. */
+    const rows = new Map<string, { _id: Id<"documents">; version: number } | null>();
+    const documentRow = async (id: string) => {
+        const cached = rows.get(id);
+        if (cached === null) return undefined;
+        const row = cached
+            ? await ctx.db.get("documents", cached._id)
+            : await ctx.db
+                  .query("documents")
+                  .withIndex("by_tenant_and_documentId", (q) => q.eq("tenant", tenant).eq("documentId", id))
+                  .unique();
+        rows.set(id, row && { _id: row._id, version: row.state.version });
+        return row?.state;
+    };
+    const settingsRow = () => ctx.db.query("settings").withIndex("by_tenant", (q) => q.eq("tenant", tenant)).unique();
 
-function settingsOf(ctx: QueryCtx, tenant: string): Promise<Doc<"settings"> | null> {
-    return ctx.db.query("settings").withIndex("by_tenant", (q) => q.eq("tenant", tenant)).unique();
-}
-
-/** A settings row without its system fields: core's `Settings`. */
-function settingsFrom({ _id, _creationTime, tenant, ...settings }: Doc<"settings">) {
-    return settings;
-}
-
-/** One mutation's view of a tenant's books: what `memory.ts` keeps in maps, here read and written through indexes. */
-async function books(ctx: MutationCtx, tenant: string) {
-    checkTenant(tenant);
-    const row = await settingsOf(ctx, tenant);
-    // Date is fixed for the whole mutation in Convex, so every event in it shares one instant.
-    const context: Context = contextFor(row ? settingsFrom(row) : {}, registry, new Date().toISOString());
-    let head: number | undefined;
-
-    /**
-     * The next log position. The head is read only when a command produced
-     * events, so a retried no-op neither reads nor conflicts on the log.
-     */
-    const nextPosition = async (): Promise<number> => {
-        if (head === undefined) {
-            const last = await ctx.db
+    const read: Reader = {
+        async settings() {
+            const row = await settingsRow();
+            if (!row) return {};
+            const { _id, _creationTime, tenant: _tenant, ...settings } = row;
+            return settings;
+        },
+        load: documentRow,
+        async *scan(filter) {
+            for await (const { documentId, seq, kind, stage, customer, dueDate } of scan(ctx, tenant, filter)) {
+                yield { id: documentId, seq, kind, stage, ...(customer !== undefined && { customer }), ...(dueDate !== undefined && { dueDate }) };
+            }
+        },
+        async events(after, limit) {
+            const events = await ctx.db
                 .query("events")
-                .withIndex("by_tenant_and_position", (q) => q.eq("tenant", tenant))
-                .order("desc")
-                .first();
-            head = last?.position ?? 0;
-        }
-        head += 1;
-        return head;
-    };
-
-    return {
-        context,
-        load: (documentId: string) => load(ctx, tenant, documentId),
-
-        /** Takes the next value of `series`. A refusal later in the mutation rolls this back with the rest. */
-        async next(series: string): Promise<number> {
+                .withIndex("by_tenant_and_position", (q) => q.eq("tenant", tenant).gt("position", after))
+                .take(limit);
+            // Events written before formats existed are format 1.
+            return events.map(({ position, format = 1, documentId, version, at, event }) => ({ position, format, documentId, version, at, event }));
+        },
+        async holder(number) {
             const row = await ctx.db
-                .query("sequences")
-                .withIndex("by_tenant_and_series", (q) => q.eq("tenant", tenant).eq("series", series))
-                .unique();
-            const last = (row?.last ?? 0) + 1;
-            if (row) await ctx.db.patch("sequences", row._id, { last });
-            else await ctx.db.insert("sequences", { tenant, series, last });
-            return last;
+                .query("documents")
+                .withIndex("by_tenant_and_number", (q) => q.eq("tenant", tenant).eq("number", number))
+                .first();
+            return row?.documentId;
         },
-
-        /** Saves the document `row` became, and appends its events to the tenant's log. */
-        async save(row: Doc<"documents"> | null, state: DocumentState | undefined, events: DocumentEvent[]): Promise<void> {
-            if (!state || events.length === 0) return;
-            const fields = {
-                tenant,
-                documentId: state.id,
-                state: asValue.state(state),
-                ...((state.status === "issued" || state.status === "void") && { number: state.number }),
-            };
-            if (fields.number !== undefined && fields.number !== row?.number) {
-                const holder = await ctx.db
-                    .query("documents")
-                    .withIndex("by_tenant_and_number", (q) => q.eq("tenant", tenant).eq("number", fields.number))
-                    .first();
-                if (holder) throw new InvoiceError("duplicate-number", "number", `number ${fields.number} is taken`);
-            }
-            if (row) await ctx.db.replace("documents", row._id, fields);
-            else await ctx.db.insert("documents", fields);
-            for (const [i, event] of events.entries()) {
-                await ctx.db.insert("events", {
-                    tenant,
-                    position: await nextPosition(),
-                    documentId: state.id,
-                    version: state.version - events.length + i + 1,
-                    at: context.now,
-                    event: asValue.event(event),
-                });
-            }
+        async documents(after, limit) {
+            const documents = await ctx.db
+                .query("documents")
+                .withIndex("by_tenant_and_documentId", (q) => (after === undefined ? q.eq("tenant", tenant) : q.eq("tenant", tenant).gt("documentId", after)))
+                .take(limit);
+            return documents.map((r) => r.state);
         },
     };
+
+    const writer = "insert" in ctx.db ? ctx.db : undefined;
+    return {
+        read: (work) => work(read),
+        transaction: (work) => (writer ? work(transaction(writer)) : Promise.reject(new Error("a query cannot write"))),
+        maxScan: MAX_SCAN,
+        maxDocuments: MAX_DOCUMENTS,
+    };
+
+    function transaction(db: GenericDatabaseWriter<DataModel>): Transaction {
+        const relist = async (id: string, listing: Listing) => {
+            const row = await db
+                .query("listings")
+                .withIndex("by_tenant_and_documentId", (q) => q.eq("tenant", tenant).eq("documentId", id))
+                .unique();
+            if (row) {
+                // An unchanged listing is left alone, so a rebuild invalidates no subscription it need not.
+                if (!sameListing(row, listing)) await db.replace("listings", row._id, { tenant, documentId: id, ...listing, seq: row.seq });
+                return;
+            }
+            // A document saved before listings existed: its seq is its first event's position.
+            const first = await db
+                .query("events")
+                .withIndex("by_tenant_and_documentId_and_position", (q) => q.eq("tenant", tenant).eq("documentId", id))
+                .first();
+            if (!first) throw new Error(`document ${id} has no events`);
+            await db.insert("listings", { tenant, documentId: id, ...listing, seq: first.position });
+        };
+        return {
+            ...read,
+            async saveSettings(settings) {
+                const row = await settingsRow();
+                const next = { tenant, ...asValue.settings(settings) };
+                if (row) await db.replace("settings", row._id, next);
+                else await db.insert("settings", next);
+            },
+            async next(series) {
+                const row = await db
+                    .query("sequences")
+                    .withIndex("by_tenant_and_series", (q) => q.eq("tenant", tenant).eq("series", series))
+                    .unique();
+                const last = (row?.last ?? 0) + 1;
+                if (row) await db.patch("sequences", row._id, { last });
+                else await db.insert("sequences", { tenant, series, last });
+                return last;
+            },
+            async head() {
+                const last = await db
+                    .query("events")
+                    .withIndex("by_tenant_and_position", (q) => q.eq("tenant", tenant))
+                    .order("desc")
+                    .first();
+                return last?.position ?? 0;
+            },
+            async write({ state, expected, listing, events }) {
+                if (!rows.has(state.id)) await documentRow(state.id);
+                const row = rows.get(state.id);
+                if (row?.version !== expected) throw new Error(`document ${state.id} changed during the transaction`);
+                const next = { tenant, documentId: state.id, state: asValue.state(state), ...("number" in state && { number: state.number }) };
+                if (row) {
+                    await db.replace("documents", row._id, next);
+                    await relist(state.id, listing);
+                } else {
+                    // A new document has no listing yet: its seq is its first event's position.
+                    rows.set(state.id, { _id: await db.insert("documents", next), version: state.version });
+                    await db.insert("listings", { tenant, documentId: state.id, ...listing, seq: events[0]!.position });
+                }
+                rows.set(state.id, { ...rows.get(state.id)!, version: state.version });
+                for (const e of events) await db.insert("events", { tenant, ...asValue.stored(e) });
+            },
+            relist,
+        };
+    }
 }
 
-const scope = { tenant: v.string() };
-type Scope = { tenant: string };
+const vPacks = v.optional(v.array(vCountryPack));
+const scope = { tenant: v.string(), packs: vPacks };
 
-/** Runs a command that needs no number: load → execute → save. */
-function run(ctx: MutationCtx, scope: Scope, id: string, command: Command | ((context: Context) => Command)) {
-    return refusals(async () => {
-        const b = await books(ctx, scope.tenant);
-        const row = await b.load(id);
-        const { state, events } = execute(row?.state, typeof command === "function" ? command(b.context) : command, b.context);
-        await b.save(row, state, events);
-        if (!state) throw new InvoiceError("not-found", "id", `no document ${id}`);
-        return asValue.state(state);
-    });
+function books(ctx: QueryCtx | MutationCtx, a: { tenant: string; packs?: Infer<typeof vPacks> }): Books {
+    return createBooks(store(ctx, a.tenant), { packs: a.packs });
 }
 
 /** Replaces the given settings, keeping the others. */
 export const configure = mutation({
-    args: { tenant: v.string(), settings: vSettings },
+    args: { ...scope, settings: vSettings },
     returns: v.null(),
-    handler: (ctx, { tenant, settings }) =>
+    handler: (ctx, a) =>
         refusals(async () => {
-            checkTenant(tenant);
-            checkSettings(settings, registry);
-            const row = await settingsOf(ctx, tenant);
-            const next = { tenant, ...(row && settingsFrom(row)), ...settings };
-            if (row) await ctx.db.replace("settings", row._id, next);
-            else await ctx.db.insert("settings", next);
+            await books(ctx, a).configure(a.settings);
             return null;
         }),
 });
@@ -193,75 +227,56 @@ export const configure = mutation({
 export const create = mutation({
     args: { ...scope, document: vNewDocument },
     returns: vDocumentState,
-    handler: (ctx, a) => {
-        const id = a.document.id ?? newId();
-        return run(ctx, a, id, (context) => ({ type: "create", id, data: expand(a.document, context) }));
-    },
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).create(a.document))),
 });
 
 export const update = mutation({
     args: { ...scope, id: v.string(), document: vNewDocument },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, (context) => ({ type: "update", data: expand(a.document, context) })),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).update(a.id, a.document))),
 });
 
 export const discard = mutation({
     args: { ...scope, id: v.string() },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, { type: "discard" }),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).discard(a.id))),
 });
 
 /** Takes the next number in the document's series in the same transaction as the issue. */
 export const issue = mutation({
     args: { ...scope, id: v.string() },
     returns: vDocumentState,
-    handler: (ctx, a) =>
-        refusals(async () => {
-            const b = await books(ctx, a.tenant);
-            const row = await b.load(a.id);
-            const plan = row?.state.status === "draft" ? numberingFor(row.state.data, b.context) : undefined;
-            const number = plan ? plan.format(await b.next(plan.series)) : "";
-            const { state, events } = execute(row?.state, { type: "issue", number }, b.context);
-            await b.save(row, state, events);
-            if (!state) throw new InvoiceError("not-found", "id", `no document ${a.id}`);
-            return asValue.state(state);
-        }),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).issue(a.id))),
 });
 
 export const voidDocument = mutation({
     args: { ...scope, id: v.string(), reason: v.string() },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, { type: "void", reason: a.reason }),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).void(a.id, a.reason))),
 });
 
 export const settle = mutation({
     args: { ...scope, id: v.string(), settlement: vNewSettlement },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, { type: "settle", settlement: a.settlement }),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).settle(a.id, a.settlement))),
 });
 
 export const reverseSettlement = mutation({
     args: { ...scope, id: v.string(), settlementId: v.string(), reason: v.string() },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, { type: "reverse-settlement", settlementId: a.settlementId, reason: a.reason }),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).reverseSettlement(a.id, a.settlementId, a.reason))),
 });
 
 export const requestDelivery = mutation({
     args: { ...scope, id: v.string(), delivery: vDeliveryRequest },
     returns: vDocumentState,
-    handler: (ctx, a) => run(ctx, a, a.id, { type: "request-delivery", delivery: a.delivery }),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).requestDelivery(a.id, a.delivery))),
 });
 
 export const completeDelivery = mutation({
     args: { ...scope, id: v.string(), deliveryId: v.string(), status: vDeliveryStatus, detail: v.optional(v.string()) },
     returns: vDocumentState,
-    handler: (ctx, a) =>
-        run(ctx, a, a.id, {
-            type: "complete-delivery",
-            deliveryId: a.deliveryId,
-            status: a.status,
-            ...(a.detail !== undefined && { detail: a.detail }),
-        }),
+    handler: (ctx, a) => refusals(async () => asValue.state(await books(ctx, a).completeDelivery(a.id, a.deliveryId, a.status, a.detail))),
 });
 
 /** Issues a credit note against an issued invoice and applies it to both, numbered in the note's series. */
@@ -270,51 +285,50 @@ export const credit = mutation({
     returns: v.object({ invoice: vDocumentState, note: vDocumentState }),
     handler: (ctx, a) =>
         refusals(async () => {
-            const b = await books(ctx, a.tenant);
-            const invoice = await b.load(a.invoiceId);
-            const existing = await b.load(a.note.id);
-            const invoiceState = invoice?.state;
-            const plan =
-                invoiceState?.status === "issued" && !existing
-                    ? numberingFor(creditNoteData(invoiceState, a.note.input, b.context), b.context)
-                    : undefined;
-            const number = plan ? plan.format(await b.next(plan.series)) : "";
-            const result = creditInvoice(invoiceState, existing?.state, { ...a.note, number }, b.context);
-            await b.save(invoice, result.invoice.state, result.invoice.events);
-            await b.save(existing, result.note.state, result.note.events);
-            return { invoice: asValue.state(result.invoice.state), note: asValue.state(result.note.state) };
+            const { invoice, note } = await books(ctx, a).credit(a.invoiceId, a.note);
+            return { invoice: asValue.state(invoice), note: asValue.state(note) };
         }),
+});
+
+/** Rewrites a page of listings from their documents; call again with `next` until it is absent. */
+export const rebuildListings = mutation({
+    args: { ...scope, cursor: v.optional(v.string()) },
+    returns: v.object({ next: v.optional(v.string()) }),
+    handler: (ctx, a) => refusals(() => books(ctx, a).rebuildListings(a.cursor)),
 });
 
 export const get = query({
     args: { tenant: v.string(), id: v.string() },
     returns: v.union(vDocumentState, v.null()),
-    handler: async (ctx, a) => (await load(ctx, a.tenant, a.id))?.state ?? null,
+    handler: (ctx, a) => refusals(async () => asValue.stateOrNull(await books(ctx, a).get(a.id))),
 });
 
 export const getByNumber = query({
     args: { tenant: v.string(), number: v.string() },
     returns: v.union(vDocumentState, v.null()),
-    handler: async (ctx, a) => {
-        const row = await ctx.db
-            .query("documents")
-            .withIndex("by_tenant_and_number", (q) => q.eq("tenant", a.tenant).eq("number", a.number))
-            .first();
-        return row?.state ?? null;
-    },
+    handler: (ctx, a) => refusals(async () => asValue.stateOrNull(await books(ctx, a).getByNumber(a.number))),
+});
+
+/**
+ * The tenant's documents, newest first, filtered by kind, status and customer.
+ * A page reads at most MAX_SCAN listings, so it can come back short with a
+ * `next`. Without `asOf`, "overdue" is judged on the date the query runs; a
+ * cached or subscribed query is not rerun when the date changes, so a reactive
+ * caller passes `asOf` itself.
+ */
+export const list = query({
+    args: { ...scope, query: v.optional(vListQuery) },
+    returns: vListPage,
+    handler: (ctx, a) =>
+        refusals(async () => {
+            const page = await books(ctx, a).list(a.query);
+            return { documents: page.documents.map(asValue.state), ...(page.next !== undefined && { next: page.next }) };
+        }),
 });
 
 /** The tenant's log after position `after` (default 0), at most `limit` (default 100, at most 1000) events. */
 export const events = query({
     args: { tenant: v.string(), after: v.optional(v.number()), limit: v.optional(v.number()) },
     returns: v.array(vStoredEvent),
-    handler: (ctx, args) =>
-        refusals(async () => {
-            const { after, limit } = checkPage(args.after, args.limit);
-            const rows = await ctx.db
-                .query("events")
-                .withIndex("by_tenant_and_position", (q) => q.eq("tenant", args.tenant).gt("position", after))
-                .take(limit);
-            return rows.map(({ position, documentId, version, at, event }) => ({ position, documentId, version, at, event }));
-        }),
+    handler: (ctx, a) => refusals(async () => (await books(ctx, a).events(a.after, a.limit)).map(asValue.stored)),
 });

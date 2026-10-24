@@ -31,5 +31,5 @@ export const eu: CountryPack = {
         export: { label: "Export outside the EU", taxes: [{ category: "G", rate: "0" }], source: UNCL5305, checked: "2026-10-23" },
         "outside-scope": { label: "Outside the scope of tax", taxes: [{ category: "O" }], source: UNCL5305, checked: "2026-10-23" },
     },
-    canVoid: () => ({ allowed: false, reason: "EN 16931 has no voiding; issue a credit note (document type 381)" }),
+    voiding: { allowed: false, reason: "EN 16931 has no voiding; issue a credit note (document type 381)" },
 };

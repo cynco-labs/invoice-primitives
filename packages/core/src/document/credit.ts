@@ -1,8 +1,10 @@
 import { InvoiceError } from "../errors.ts";
 import { dec } from "../money/decimal.ts";
 import { balance } from "./balance.ts";
-import { evolve, execute, issueDateOf, type Context } from "./execute.ts";
-import { expand, type NewDocument } from "./input.ts";
+import { canonical, evolve, execute, issueDateOf, type Context } from "./execute.ts";
+import { parse, type Infer } from "../schema/dsl.ts";
+import * as S from "../schema/shapes.ts";
+import { expand } from "./input.ts";
 import type { DocumentEvent, DocumentState, DraftData, IssuedState } from "./types.ts";
 
 /**
@@ -10,7 +12,7 @@ import type { DocumentEvent, DocumentState, DraftData, IssuedState } from "./typ
  * (named taxes, optional line ids). The parties, currency and policy are the
  * invoice's. Lines carry positive quantities: the note itself is the credit.
  */
-export type CreditNoteInput = Omit<NewDocument, "id" | "kind" | "corrects" | "correctsNumber" | "seller" | "buyer" | "currency" | "policy">;
+export type CreditNoteInput = Infer<typeof S.CreditNoteInput>;
 
 export interface Change {
     state: DocumentState;
@@ -36,7 +38,10 @@ export function creditInvoice(
     if (!invoice) throw new InvoiceError("not-found", "invoice", "no such invoice");
     if (existingNote) {
         const applied = invoice.status === "issued" && invoice.settlements.some((s) => s.id === `credit:${note.id}` && !s.reversed);
-        if (applied && existingNote.data.corrects === invoice.id && existingNote.status === "issued") {
+        if (applied && existingNote.data.corrects === invoice.id && existingNote.status === "issued" && invoice.status === "issued") {
+            if (canonical(existingNote.data) !== canonical(creditNoteData(invoice, note.input, ctx))) {
+                throw new InvoiceError("duplicate-id", "note.id", `credit note ${note.id} exists with other values`);
+            }
             return { invoice: { state: invoice, events: [] }, note: { state: existingNote, events: [] } };
         }
         throw new InvoiceError("already-exists", "note.id", `document ${note.id} exists`);
@@ -78,7 +83,8 @@ export function creditInvoice(
 }
 
 export function creditNoteData(invoice: IssuedState, input: CreditNoteInput, ctx: Context): DraftData {
-    const { seller, buyer, currency, policy } = invoice.data;
-    const data = expand({ ...input, seller, buyer, currency, policy }, ctx);
+    const checked = parse(S.CreditNoteInput, input, "note.input");
+    const { seller, buyer, customer, currency, policy } = invoice.data;
+    const data = expand({ ...checked, seller, buyer, ...(customer !== undefined && { customer }), currency, policy }, ctx);
     return { ...data, kind: "credit-note", corrects: invoice.id, correctsNumber: invoice.number };
 }

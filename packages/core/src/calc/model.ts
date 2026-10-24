@@ -1,135 +1,29 @@
 /**
- * The calculation input and output. Field names follow the EN 16931 semantic
- * model; each carries its business term (BT) or group (BG) so a reader can
- * check it against the norm, PINT, or a national CIUS.
+ * The calculation input and output. The input shapes are defined once, in
+ * `schema/shapes.ts`, with each field's EN 16931 business term (BT) or group
+ * (BG); the types here are inferred from them. The computed shapes carry
+ * `Decimal`s and never leave the core.
  *
  * Amounts cross this boundary as decimal strings ("1300.00"), never numbers.
  */
-import type { Decimal, RoundingMode } from "../money/decimal.ts";
+import type { Decimal } from "../money/decimal.ts";
+import type { Infer } from "../schema/dsl.ts";
+import type * as S from "../schema/shapes.ts";
 
-export interface InvoiceInput {
-    /** BT-5. ISO 4217; its minor unit sets the scale of every amount. */
-    currency: string;
-    /** BG-25. */
-    lines: readonly LineInput[];
-    /** BG-20. */
-    allowances?: readonly DocumentAdjustment[];
-    /** BG-21. */
-    charges?: readonly DocumentAdjustment[];
-    /** BT-113. */
-    prepaid?: string;
-    /** BT-114, when the seller states it. Otherwise the policy's cash increment derives it. */
-    roundingAmount?: string;
-}
-
-export interface LineInput {
-    /** BT-126. */
-    id: string;
-    /** BT-129, as a decimal string ("10", "1.5"). Negative for an item returned within an invoice; a credit note's lines are positive. */
-    quantity: string;
-    /**
-     * BT-146, the item net price per `baseQuantity`. Tax-inclusive when the
-     * policy says prices include tax.
-     */
-    price: string;
-    /** BT-149. Defaults to 1. */
-    baseQuantity?: string;
-    /** BG-27. */
-    allowances?: readonly Adjustment[];
-    /** BG-28. */
-    charges?: readonly Adjustment[];
-    /**
-     * BG-30. The taxes the line bears, in application order. EN 16931 allows
-     * exactly one; the core allows several so compound and per-unit taxes
-     * (Malaysian tourism tax, excise) fit the same shape.
-     */
-    taxes: readonly TaxInput[];
-}
-
-/**
- * An allowance or charge: a stated amount, or `percent` of a stated `base`.
- * A stated amount wins; its percent and base are then recorded, not checked.
- * Under tax-inclusive prices a line adjustment is tax-inclusive too.
- */
-export type Adjustment = {
-    reason?: string;
-    reasonCode?: string;
-} & (
-    | {
-          /** BT-136 / BT-141 / BT-92 / BT-99. */
-          amount: string;
-          percent?: string;
-          base?: string;
-      }
-    | {
-          amount?: undefined;
-          /** BT-138 / BT-143 / BT-94 / BT-101. */
-          percent: string;
-          /** BT-137 / BT-142 / BT-93 / BT-100. */
-          base: string;
-      }
-);
-
-export type DocumentAdjustment = Adjustment & {
-    /** BT-95 / BT-102. EN 16931 requires the tax category of a document-level adjustment. */
-    taxes: readonly TaxInput[];
-};
-
-export interface TaxInput {
-    /** BT-151's scheme. "VAT" is EN 16931's word for any consumption tax (SST, GST). */
-    scheme?: string;
-    /** BT-151 / BT-118. UNCL5305 (S, Z, E, AE, K, G, O, L, M) or a national code (PINT MY's SA, SE, TTX). */
-    category: string;
-    /** BT-152, percent. Absent for a category that levies nothing. */
-    rate?: string;
-    /** A fixed amount per unit of quantity, instead of a rate. */
-    perUnit?: string;
-    /** Levied on the line net plus the line's earlier taxes. */
-    compound?: boolean;
-    /** BT-120. */
-    exemptionReason?: string;
-    /** BT-121. */
-    exemptionReasonCode?: string;
-}
-
+export type InvoiceInput = Infer<typeof S.InvoiceInput>;
+export type LineInput = Infer<typeof S.LineInput>;
+export type Adjustment = Infer<typeof S.Adjustment>;
+export type DocumentAdjustment = Infer<typeof S.DocumentAdjustment>;
+export type TaxInput = Infer<typeof S.TaxInput>;
 /**
  * How a jurisdiction rounds. Results carry the policy and the core version, so
  * a document issued under them recomputes identically. Change behaviour by
  * publishing a new policy id, never by editing one; `test/golden` pins every
  * published id.
  */
-export type Policy = DocumentRounding | LineRounding;
-
-interface PolicyBase {
-    readonly id: string;
-    readonly rounding: {
-        /** Line gross, percentage adjustments, cash rounding. */
-        readonly amounts: RoundingMode;
-        /** Tax amounts and tax extracted from inclusive prices. */
-        readonly tax: RoundingMode;
-    };
-    /** Round the amount due to this increment, recording BT-114 (Malaysia: "0.05"). */
-    readonly cashIncrement?: string;
-}
-
-/** Tax per (scheme, category, rate) on the summed taxable amount, rounded once: EN 16931 BR-CO-17, PINT, Japan. */
-export interface DocumentRounding extends PolicyBase {
-    readonly taxRounding: "document";
-    /**
-     * false: prices are net of tax (EN 16931).
-     * "extract": tax = round(gross × rate ÷ (100 + rate)), taxable = gross − tax
-     * (Japan; most retail). BR-CO-17 can be a unit off.
-     * "reconcile": the taxable amount is chosen so BR-CO-17 holds; a gross no
-     * taxable amount reaches leaves its residual in BT-114.
-     */
-    readonly pricesIncludeTax: false | "extract" | "reconcile";
-}
-
-/** Tax per line per tax, rounded each time, then summed. */
-export interface LineRounding extends PolicyBase {
-    readonly taxRounding: "line";
-    readonly pricesIncludeTax: false | "extract";
-}
+export type Policy = Infer<typeof S.Policy>;
+export type DocumentRounding = Infer<typeof S.DocumentRounding>;
+export type LineRounding = Infer<typeof S.LineRounding>;
 
 export interface ComputedAdjustment {
     amount: Decimal;

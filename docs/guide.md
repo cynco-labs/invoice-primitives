@@ -36,6 +36,17 @@ const html = renderHtml(present(doc, { locale: "en-MY", asOf: "2026-10-25" }), {
 - A credit note takes the same short lines as `create`, with positive quantities: `books.credit(invoiceId, { id: "cn_1", input: { lines: [{ name: "Refund: 1 hour", quantity: "1", price: "150.00", tax: "service-8" }] } })`. It is issued and applied to the invoice in one step.
 - A party's address is `{ lines: ["Lot 12, Jalan Ampang"], city: "Kuala Lumpur", postalCode: "50450", country: "MY" }`.
 
+**Lists.** Give a document your id for the buyer as `customer`, and the books index it for you:
+
+```ts
+await books.list({ status: "overdue" });               // open and past due, in the seller's time zone
+await books.list({ customer: "cus_42", limit: 20 });    // one buyer's documents, newest first
+const page = await books.list({ kind: "invoice", status: "open" });
+if (page.next) await books.list({ kind: "invoice", status: "open", cursor: page.next });
+```
+
+`status` is `draft`, `open` (including partly paid and overdue), `overdue`, `settled`, `void` or `discarded`; without one, every document but discarded drafts. "Overdue" is judged on today in the seller's time zone, or on `asOf: "2026-10-31"`; `asOf` goes only with `status: "overdue"`, because the other statuses count every payment recorded. For one document on a date, use `balance(doc, date)`. In a Convex query that a client subscribes to, pass `asOf` from the client, because a cached query is not rerun when the date changes. A credit note keeps its invoice's `customer`. Keep paging while `next` is present: a page can come back short, or empty, before the end.
+
 **What you can rely on:**
 - Amounts are strings in and out (`"150.00"`), so nothing passes through a float.
 - A command that repeats what already happened changes nothing, so a retried request is safe. Pass your own `id` to `create` for the same guarantee on creation.
@@ -118,4 +129,31 @@ your app ──▶ backend (Convex mutation │ Durable Object │ memory)
             core: execute(state, command, context) → { state, events }      (pure, synchronous)
 ```
 
-The whole state machine is two pure functions in `core`: `decide(state, command) → events` and `evolve(state, event) → state`. A backend only loads, numbers and saves. So the rules are identical everywhere, and a new backend is about 150 lines.
+Every command runs in `createBooks`, in core, on the backend's `Store`. The state machine inside it is two pure functions: `decide(state, command) → events` and `evolve(state, event) → state`. A store only reads and writes rows, so the rules are identical everywhere. To add a backend, implement `Store` from `@invoice-primitives/core/backend` and run `booksConformance` from `@invoice-primitives/core/testing` against it; `memoryStore` is the reference.
+
+## Your own jurisdiction
+
+A country pack is JSON: policies, tax categories, named taxes, rules and voiding. Pass yours with the bundled ones on any backend:
+
+```ts
+import { bundledPacks, type CountryPack } from "@invoice-primitives/core";
+
+const zz: CountryPack = {
+    id: "ZZ",
+    policies: { standard: { id: "zz-standard@1", taxRounding: "document", rounding: { amounts: "half-away-from-zero", tax: "half-away-from-zero" }, pricesIncludeTax: false } },
+    taxCategories: { S: { label: "Standard", levies: true }, E: { label: "Exempt", levies: false } },
+    taxes: { "vat-7": { label: "VAT 7%", taxes: [{ category: "S", rate: "7" }], source: "https://…", checked: "2026-10-23" } },
+    rules: [{ id: "ZZ-1", message: "the buyer has a TIN", source: "https://…", check: { require: "data.buyer.ids[scheme=TIN].value" } }],
+    defaults: { policy: "standard", currency: "MYR", timeZone: "Asia/Kuala_Lumpur" },
+    voiding: { allowed: true },
+};
+
+const books = createMemoryBooks({ packs: [...bundledPacks, zz] }); // or { packs } on Convex and Cloudflare
+await books.configure({ country: "ZZ", seller: { name: "Zed Ltd" } });
+```
+
+A pack is checked when the books are built: its shape, its time zone and currency, that every named tax uses a category the pack has, and that every rule path can be read. A malformed one is refused with a path (`packs[0].rules[1].check.require`). `require` counts a value as given only when it is not blank and not an empty list. A rule checks a path into `{ data, figures }` with `require`, `match` (a regular expression) or `oneOf`. Policies are named values that `compute` implements; publishing a new policy id is how figures change.
+
+## Other languages
+
+`@invoice-primitives/core/schema.json` is the JSON Schema of every shape: documents, events, packs, settings, list queries. `packages/core/vectors/` holds calculation and document test vectors, inputs with the outputs this library gives, for an implementation in another language to check itself against.

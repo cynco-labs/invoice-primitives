@@ -56,9 +56,10 @@ try {
 ## How it works
 
 - **One object per tenant.** `booksFor(namespace, tenant)` addresses the object by name, so a tenant's data stays in one place and tenants never share a database or a lock.
-- **One command, one transaction.** Each method runs `transactionSync`: load the state, take a number if issuing, run core, save the state and the events. The object handles one request at a time, so there are no locks and no retries. A refused command rolls back and draws no number.
+- **Core runs the command; the object stores rows.** The object is a `Store` for core's `createBooks`. Each command runs in `ctx.storage.transaction`; every SQL call inside it is part of the transaction and completes synchronously, so no other request runs in the middle. A refused command rolls back and draws no number.
 - **Refusals cross RPC as values.** A thrown exception across Durable Object RPC is logged as a crash, so the object returns `{ ok: false, error }` and `booksFor` rethrows it as an `InvoiceError` on your side.
-- **Storage.** Tables `documents` (state as JSON, with `number` unique), `events` (positions 1, 2, 3... with no gaps), `sequences` and `settings`.
+- **Storage.** Tables `documents` (state as JSON, with `number` unique, and its listing: `seq`, `kind`, `stage`, `customer`, `due_date`), `events` (positions 1, 2, 3... with no gaps, each with its `format`), `sequences` and `settings`. An object whose tables were written by an earlier version migrates them when it starts.
+- **Your own country packs.** `booksFor(env.INVOICING, tenant, { packs: [...bundledPacks, mine] })` sends the packs, as JSON, with every call.
 
 ## Cost
 

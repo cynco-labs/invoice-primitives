@@ -23,10 +23,14 @@ on Cloudflare with a Durable Object per tenant. Made by
 - Payments, partial payments and reversals. "Paid" and "overdue" are derived,
   never stored.
 - Country packs for Malaysia (PINT-MY, MyInvois), Japan (qualified invoices) and
-  the EU (EN 16931), with named taxes like `tax: "service-8"`
+  the EU (EN 16931), with named taxes like `tax: "service-8"`. A pack is plain
+  JSON, so you can bring your own jurisdiction to any backend.
 - An event log per tenant that rebuilds every document exactly
 - Localised, brandable HTML in any language
-- One `Books` interface on every backend, held to one shared conformance suite
+- One `Books` interface on every backend, held to one shared conformance suite.
+  A new backend implements a small `Store`; core runs every rule.
+- A JSON Schema of every shape and language-neutral test vectors, for callers
+  and implementations in other languages
 
 ## Install
 

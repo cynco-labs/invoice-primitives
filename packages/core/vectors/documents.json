@@ -1,0 +1,748 @@
+[
+  {
+    "name": "issue, part-pay, refuse an overpayment, settle, reverse",
+    "now": "2026-10-23T02:00:00Z",
+    "timeZone": "Asia/Kuala_Lumpur",
+    "steps": [
+      {
+        "command": {
+          "type": "create",
+          "id": "inv",
+          "data": {
+            "kind": "invoice",
+            "policy": "my-pint@1",
+            "currency": "MYR",
+            "issueDate": "2026-10-23",
+            "due": {
+              "days": 30
+            },
+            "seller": {
+              "name": "Kedai Kopi Sdn Bhd",
+              "ids": [
+                {
+                  "scheme": "TIN",
+                  "value": "C1234567890"
+                }
+              ]
+            },
+            "buyer": {
+              "name": "Acme Trading",
+              "email": "ap@acme.example"
+            },
+            "lines": [
+              {
+                "id": "1",
+                "name": "Consulting",
+                "quantity": "10",
+                "unit": "HUR",
+                "price": "150.00",
+                "taxes": [
+                  {
+                    "category": "SE",
+                    "rate": "8"
+                  }
+                ]
+              },
+              {
+                "id": "2",
+                "name": "Kopi beans 1kg",
+                "quantity": "3",
+                "price": "45.90",
+                "taxes": [
+                  {
+                    "category": "SA",
+                    "rate": "10"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "events": [
+          {
+            "type": "created",
+            "id": "inv",
+            "data": {
+              "kind": "invoice",
+              "policy": "my-pint@1",
+              "currency": "MYR",
+              "issueDate": "2026-10-23",
+              "due": {
+                "days": 30
+              },
+              "seller": {
+                "name": "Kedai Kopi Sdn Bhd",
+                "ids": [
+                  {
+                    "scheme": "TIN",
+                    "value": "C1234567890"
+                  }
+                ]
+              },
+              "buyer": {
+                "name": "Acme Trading",
+                "email": "ap@acme.example"
+              },
+              "lines": [
+                {
+                  "id": "1",
+                  "name": "Consulting",
+                  "quantity": "10",
+                  "unit": "HUR",
+                  "price": "150.00",
+                  "taxes": [
+                    {
+                      "category": "SE",
+                      "rate": "8"
+                    }
+                  ]
+                },
+                {
+                  "id": "2",
+                  "name": "Kopi beans 1kg",
+                  "quantity": "3",
+                  "price": "45.90",
+                  "taxes": [
+                    {
+                      "category": "SA",
+                      "rate": "10"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "issue",
+          "number": "INV-2026-00001"
+        },
+        "events": [
+          {
+            "type": "issued",
+            "number": "INV-2026-00001",
+            "issueDate": "2026-10-23",
+            "dueDate": "2026-11-22",
+            "figures": {
+              "policy": "my-pint@1",
+              "core": "@invoice-primitives/core@0.0.0",
+              "scale": 2,
+              "lines": [
+                {
+                  "id": "1",
+                  "net": "1500.00"
+                },
+                {
+                  "id": "2",
+                  "net": "137.70"
+                }
+              ],
+              "taxes": [
+                {
+                  "scheme": "VAT",
+                  "category": "SE",
+                  "rate": "8",
+                  "taxable": "1500.00",
+                  "tax": "120.00"
+                },
+                {
+                  "scheme": "VAT",
+                  "category": "SA",
+                  "rate": "10",
+                  "taxable": "137.70",
+                  "tax": "13.77"
+                }
+              ],
+              "totals": {
+                "lineNet": "1637.70",
+                "allowances": "0.00",
+                "charges": "0.00",
+                "taxExclusive": "1637.70",
+                "tax": "133.77",
+                "taxInclusive": "1771.47",
+                "prepaid": "0.00",
+                "rounding": "0.00",
+                "payable": "1771.47"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "issue",
+          "number": "INV-2026-00002"
+        },
+        "events": []
+      },
+      {
+        "command": {
+          "type": "settle",
+          "settlement": {
+            "id": "p1",
+            "kind": "payment",
+            "amount": "1000",
+            "date": "2026-10-25"
+          }
+        },
+        "events": [
+          {
+            "type": "settled",
+            "settlement": {
+              "id": "p1",
+              "kind": "payment",
+              "amount": "1000.00",
+              "date": "2026-10-25"
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "settle",
+          "settlement": {
+            "id": "p2",
+            "kind": "payment",
+            "amount": "771.48",
+            "date": "2026-10-26"
+          }
+        },
+        "refused": {
+          "code": "overpayment",
+          "path": "settlement.amount"
+        }
+      },
+      {
+        "command": {
+          "type": "settle",
+          "settlement": {
+            "id": "p2",
+            "kind": "payment",
+            "amount": "771.47",
+            "date": "2026-10-26"
+          }
+        },
+        "events": [
+          {
+            "type": "settled",
+            "settlement": {
+              "id": "p2",
+              "kind": "payment",
+              "amount": "771.47",
+              "date": "2026-10-26"
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "settle",
+          "settlement": {
+            "id": "p2",
+            "kind": "payment",
+            "amount": "771.470",
+            "date": "2026-10-26"
+          }
+        },
+        "events": []
+      },
+      {
+        "command": {
+          "type": "void",
+          "reason": "issued in error"
+        },
+        "refused": {
+          "code": "has-settlements",
+          "path": ""
+        }
+      },
+      {
+        "command": {
+          "type": "reverse-settlement",
+          "settlementId": "p2",
+          "reason": "bounced"
+        },
+        "events": [
+          {
+            "type": "settlement-reversed",
+            "settlementId": "p2",
+            "reason": "bounced",
+            "at": "2026-10-23T02:00:00Z"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "a draft is edited and issued; an issued EN 16931 invoice can be neither voided nor discarded",
+    "now": "2026-10-23T02:00:00Z",
+    "timeZone": "Europe/Paris",
+    "steps": [
+      {
+        "command": {
+          "type": "create",
+          "id": "d",
+          "data": {
+            "kind": "invoice",
+            "policy": "en16931@1",
+            "currency": "EUR",
+            "issueDate": "2026-10-23",
+            "due": {
+              "days": 30
+            },
+            "seller": {
+              "name": "Kedai Kopi Sdn Bhd",
+              "ids": [
+                {
+                  "scheme": "TIN",
+                  "value": "C1234567890"
+                }
+              ]
+            },
+            "buyer": {
+              "name": "Acme Trading",
+              "email": "ap@acme.example"
+            },
+            "lines": [
+              {
+                "id": "1",
+                "name": "x",
+                "quantity": "1",
+                "price": "10.00",
+                "taxes": [
+                  {
+                    "category": "S",
+                    "rate": "20"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "events": [
+          {
+            "type": "created",
+            "id": "d",
+            "data": {
+              "kind": "invoice",
+              "policy": "en16931@1",
+              "currency": "EUR",
+              "issueDate": "2026-10-23",
+              "due": {
+                "days": 30
+              },
+              "seller": {
+                "name": "Kedai Kopi Sdn Bhd",
+                "ids": [
+                  {
+                    "scheme": "TIN",
+                    "value": "C1234567890"
+                  }
+                ]
+              },
+              "buyer": {
+                "name": "Acme Trading",
+                "email": "ap@acme.example"
+              },
+              "lines": [
+                {
+                  "id": "1",
+                  "name": "x",
+                  "quantity": "1",
+                  "price": "10.00",
+                  "taxes": [
+                    {
+                      "category": "S",
+                      "rate": "20"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "update",
+          "data": {
+            "kind": "invoice",
+            "policy": "en16931@1",
+            "currency": "EUR",
+            "issueDate": "2026-10-23",
+            "due": {
+              "days": 30
+            },
+            "seller": {
+              "name": "Kedai Kopi Sdn Bhd",
+              "ids": [
+                {
+                  "scheme": "TIN",
+                  "value": "C1234567890"
+                }
+              ]
+            },
+            "buyer": {
+              "name": "Acme Trading",
+              "email": "ap@acme.example"
+            },
+            "lines": [
+              {
+                "id": "1",
+                "name": "x",
+                "quantity": "1",
+                "price": "10.00",
+                "taxes": [
+                  {
+                    "category": "S",
+                    "rate": "20"
+                  }
+                ]
+              }
+            ],
+            "note": "Thank you"
+          }
+        },
+        "events": [
+          {
+            "type": "updated",
+            "data": {
+              "kind": "invoice",
+              "policy": "en16931@1",
+              "currency": "EUR",
+              "issueDate": "2026-10-23",
+              "due": {
+                "days": 30
+              },
+              "seller": {
+                "name": "Kedai Kopi Sdn Bhd",
+                "ids": [
+                  {
+                    "scheme": "TIN",
+                    "value": "C1234567890"
+                  }
+                ]
+              },
+              "buyer": {
+                "name": "Acme Trading",
+                "email": "ap@acme.example"
+              },
+              "lines": [
+                {
+                  "id": "1",
+                  "name": "x",
+                  "quantity": "1",
+                  "price": "10.00",
+                  "taxes": [
+                    {
+                      "category": "S",
+                      "rate": "20"
+                    }
+                  ]
+                }
+              ],
+              "note": "Thank you"
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "issue",
+          "number": "INV-2026-00001"
+        },
+        "events": [
+          {
+            "type": "issued",
+            "number": "INV-2026-00001",
+            "issueDate": "2026-10-23",
+            "dueDate": "2026-11-22",
+            "figures": {
+              "policy": "en16931@1",
+              "core": "@invoice-primitives/core@0.0.0",
+              "scale": 2,
+              "lines": [
+                {
+                  "id": "1",
+                  "net": "10.00"
+                }
+              ],
+              "taxes": [
+                {
+                  "scheme": "VAT",
+                  "category": "S",
+                  "rate": "20",
+                  "taxable": "10.00",
+                  "tax": "2.00"
+                }
+              ],
+              "totals": {
+                "lineNet": "10.00",
+                "allowances": "0.00",
+                "charges": "0.00",
+                "taxExclusive": "10.00",
+                "tax": "2.00",
+                "taxInclusive": "12.00",
+                "prepaid": "0.00",
+                "rounding": "0.00",
+                "payable": "12.00"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "void",
+          "reason": "mistake"
+        },
+        "refused": {
+          "code": "void-not-allowed",
+          "path": ""
+        }
+      },
+      {
+        "command": {
+          "type": "discard"
+        },
+        "refused": {
+          "code": "invalid-transition",
+          "path": ""
+        }
+      }
+    ]
+  },
+  {
+    "name": "deliveries are requested once and completed once",
+    "now": "2026-10-23T02:00:00Z",
+    "timeZone": "Asia/Kuala_Lumpur",
+    "steps": [
+      {
+        "command": {
+          "type": "create",
+          "id": "inv",
+          "data": {
+            "kind": "invoice",
+            "policy": "my-pint@1",
+            "currency": "MYR",
+            "issueDate": "2026-10-23",
+            "due": {
+              "days": 30
+            },
+            "seller": {
+              "name": "Kedai Kopi Sdn Bhd",
+              "ids": [
+                {
+                  "scheme": "TIN",
+                  "value": "C1234567890"
+                }
+              ]
+            },
+            "buyer": {
+              "name": "Acme Trading",
+              "email": "ap@acme.example"
+            },
+            "lines": [
+              {
+                "id": "1",
+                "name": "Consulting",
+                "quantity": "10",
+                "unit": "HUR",
+                "price": "150.00",
+                "taxes": [
+                  {
+                    "category": "SE",
+                    "rate": "8"
+                  }
+                ]
+              },
+              {
+                "id": "2",
+                "name": "Kopi beans 1kg",
+                "quantity": "3",
+                "price": "45.90",
+                "taxes": [
+                  {
+                    "category": "SA",
+                    "rate": "10"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        "events": [
+          {
+            "type": "created",
+            "id": "inv",
+            "data": {
+              "kind": "invoice",
+              "policy": "my-pint@1",
+              "currency": "MYR",
+              "issueDate": "2026-10-23",
+              "due": {
+                "days": 30
+              },
+              "seller": {
+                "name": "Kedai Kopi Sdn Bhd",
+                "ids": [
+                  {
+                    "scheme": "TIN",
+                    "value": "C1234567890"
+                  }
+                ]
+              },
+              "buyer": {
+                "name": "Acme Trading",
+                "email": "ap@acme.example"
+              },
+              "lines": [
+                {
+                  "id": "1",
+                  "name": "Consulting",
+                  "quantity": "10",
+                  "unit": "HUR",
+                  "price": "150.00",
+                  "taxes": [
+                    {
+                      "category": "SE",
+                      "rate": "8"
+                    }
+                  ]
+                },
+                {
+                  "id": "2",
+                  "name": "Kopi beans 1kg",
+                  "quantity": "3",
+                  "price": "45.90",
+                  "taxes": [
+                    {
+                      "category": "SA",
+                      "rate": "10"
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "issue",
+          "number": "INV-2026-00001"
+        },
+        "events": [
+          {
+            "type": "issued",
+            "number": "INV-2026-00001",
+            "issueDate": "2026-10-23",
+            "dueDate": "2026-11-22",
+            "figures": {
+              "policy": "my-pint@1",
+              "core": "@invoice-primitives/core@0.0.0",
+              "scale": 2,
+              "lines": [
+                {
+                  "id": "1",
+                  "net": "1500.00"
+                },
+                {
+                  "id": "2",
+                  "net": "137.70"
+                }
+              ],
+              "taxes": [
+                {
+                  "scheme": "VAT",
+                  "category": "SE",
+                  "rate": "8",
+                  "taxable": "1500.00",
+                  "tax": "120.00"
+                },
+                {
+                  "scheme": "VAT",
+                  "category": "SA",
+                  "rate": "10",
+                  "taxable": "137.70",
+                  "tax": "13.77"
+                }
+              ],
+              "totals": {
+                "lineNet": "1637.70",
+                "allowances": "0.00",
+                "charges": "0.00",
+                "taxExclusive": "1637.70",
+                "tax": "133.77",
+                "taxInclusive": "1771.47",
+                "prepaid": "0.00",
+                "rounding": "0.00",
+                "payable": "1771.47"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "request-delivery",
+          "delivery": {
+            "id": "e1",
+            "channel": "email",
+            "to": "ap@acme.example"
+          }
+        },
+        "events": [
+          {
+            "type": "delivery-requested",
+            "delivery": {
+              "id": "e1",
+              "channel": "email",
+              "to": "ap@acme.example",
+              "requestedAt": "2026-10-23T02:00:00Z"
+            }
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "request-delivery",
+          "delivery": {
+            "id": "e1",
+            "channel": "email",
+            "to": "ap@acme.example"
+          }
+        },
+        "events": []
+      },
+      {
+        "command": {
+          "type": "complete-delivery",
+          "deliveryId": "e1",
+          "status": "delivered"
+        },
+        "events": [
+          {
+            "type": "delivery-completed",
+            "deliveryId": "e1",
+            "status": "delivered",
+            "at": "2026-10-23T02:00:00Z"
+          }
+        ]
+      },
+      {
+        "command": {
+          "type": "complete-delivery",
+          "deliveryId": "e1",
+          "status": "failed"
+        },
+        "refused": {
+          "code": "invalid-transition",
+          "path": "status"
+        }
+      }
+    ]
+  }
+]

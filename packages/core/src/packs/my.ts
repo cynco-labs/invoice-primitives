@@ -1,6 +1,5 @@
 import type { CountryPack } from "../pack.ts";
 
-const HOURS_72 = 72 * 60 * 60 * 1000;
 /** A secondary source (Grant Thornton Malaysia) on the SST rates from 1 July 2025; not the Customs order itself. */
 const SST_2025 = "https://www.grantthornton.com.my/insights/Tax/revision-of-sales-tax-rates-and-expansion-of-scope-for-service-tax/";
 const PINT_MY = "https://docs.peppol.eu/poac/my/pint-my/bis/";
@@ -55,13 +54,5 @@ export const my: CountryPack = {
         exempt: { label: "Exempt", taxes: [{ category: "E" }], source: PINT_MY, checked: "2026-10-23" },
         "outside-scope": { label: "Outside the scope of tax", taxes: [{ category: "O" }], source: PINT_MY, checked: "2026-10-23" },
     },
-    canVoid(_document, now, { validatedAt }) {
-        if (!validatedAt) return { allowed: true };
-        return Date.parse(now) - Date.parse(validatedAt) <= HOURS_72
-            ? { allowed: true }
-            : {
-                  allowed: false,
-                  reason: "MyInvois cancels only within 72 hours of validation; issue a credit note",
-              };
-    },
+    voiding: { allowed: "within", hours: 72, after: "validation", reason: "MyInvois cancels only within 72 hours of validation; issue a credit note" },
 };

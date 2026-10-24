@@ -40,8 +40,8 @@ const MUTANTS = [
     {
         name: "a refused issue keeps the number it drew",
         file: "src/memory.ts",
-        from: `sequences = saved.sequences;`,
-        to: ``,
+        from: `put(sequences, series, n);`,
+        to: `sequences.set(series, n);`,
     },
     {
         name: "reversed settlements still count as paid",
@@ -84,6 +84,127 @@ const MUTANTS = [
         file: "src/money/decimal.ts",
         from: `return twice >= d ? away : q;`,
         to: `return twice > d || (twice === d && q % 2n !== 0n) ? away : q;`,
+    },
+    {
+        name: "an issued document lists as open whatever was settled",
+        file: "src/document/listing.ts",
+        from: `(balance(state).status === "settled" ? "settled" : "open")`,
+        to: `"open"`,
+    },
+    {
+        name: "a document due today lists as overdue",
+        file: "src/document/listing.ts",
+        from: `listing.dueDate < c.value`,
+        to: `listing.dueDate <= c.value`,
+    },
+    {
+        name: "a credit note loses its invoice's customer",
+        file: "src/document/credit.ts",
+        from: `...(customer !== undefined && { customer }), currency`,
+        to: `currency`,
+    },
+    {
+        name: "a page's cursor repeats its last document",
+        file: "src/memory.ts",
+        from: `row.seq < filter.before`,
+        to: `row.seq <= filter.before`,
+    },
+    {
+        name: "a page at the scan cap ends the list",
+        file: "src/document/listing.ts",
+        from: `if (found.length === filter.limit || scanned === maxScan) return { rows: found, next: String(last) };`,
+        to: `if (found.length === filter.limit) return { rows: found, next: String(last) };
+        if (scanned === maxScan) return { rows: found };`,
+    },
+    {
+        name: "a save keeps the listing a document had",
+        file: "src/memory.ts",
+        from: `put(listings, state.id, { ...listing,`,
+        to: `if (expected === undefined) put(listings, state.id, { ...listing,`,
+    },
+    {
+        name: "a number another document holds is issued again",
+        file: "src/books.ts",
+        from: `if (holder !== undefined && holder !== state.id)`,
+        to: `if (false)`,
+    },
+    {
+        name: "a document too large for some backends is accepted",
+        file: "src/books.ts",
+        from: `if (bytes > MAX_DOCUMENT_BYTES) {`,
+        to: `if (false) {`,
+    },
+    {
+        name: "replay reads events written in a newer format",
+        file: "src/books.ts",
+        from: `if (e.format > EVENT_FORMAT)`,
+        to: `if (false)`,
+    },
+    {
+        name: "a pack's rules never fail",
+        file: "src/pack.ts",
+        from: `return rules.filter((rule) => !holds(rule.check, document));`,
+        to: `return [];`,
+    },
+    {
+        name: "a void window that has passed still allows voiding",
+        file: "src/pack.ts",
+        from: `return hours <= voiding.hours ?`,
+        to: `return true ?`,
+    },
+    {
+        name: "parse accepts fields the shape does not have",
+        file: "src/schema/dsl.ts",
+        from: `if (value[key] !== undefined && !knows(node, key)) {`,
+        to: `if (false) {`,
+    },
+    {
+        name: "a decimal field accepts a number",
+        file: "src/schema/dsl.ts",
+        from: `if (node.format === "decimal" && typeof value === "number") {`,
+        to: `if (false) {`,
+    },
+    {
+        name: "a refused command keeps the events it appended",
+        file: "src/memory.ts",
+        from: `journal?.push(() => (log.length = length));`,
+        to: ``,
+    },
+    {
+        name: "the memory store hands out the objects it stores",
+        file: "src/memory.ts",
+        from: `return doc && copyJson(doc);`,
+        to: `return doc;`,
+    },
+    {
+        name: "rebuildListings rewrites nothing",
+        file: "src/books.ts",
+        from: `await Promise.all(docs.map((doc) => tx.relist(doc.id, listingOf(doc))));`,
+        to: ``,
+    },
+    {
+        name: "require counts a blank string as given",
+        file: "src/pack.ts",
+        from: `if (typeof v === "string") return v.trim() !== "";`,
+        to: `if (typeof v === "string") return true;`,
+    },
+    {
+        name: "a decimal may carry whitespace",
+        file: "src/money/decimal.ts",
+        from: `export const DECIMAL = /^([+-])?(\\d+)(?:\\.(\\d+))?$/;`,
+        to: `export const DECIMAL = /^\\s*([+-])?(\\d+)(?:\\.(\\d+))?\\s*$/;`,
+    },
+    {
+        name: "a credit retried with other values returns the first note",
+        file: "src/document/credit.ts",
+        from: `if (canonical(existingNote.data) !== canonical(creditNoteData(invoice, note.input, ctx))) {`,
+        to: `if (false) {`,
+    },
+    {
+        name: "a rule path that cannot be read is accepted",
+        file: "src/pack.ts",
+        from: `            steps(path, \`\${at}.rules[\${j}].check.\${field}\`);`,
+        to: ``,
     },
 ];
 

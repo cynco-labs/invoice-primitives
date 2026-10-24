@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createMemoryBooks, createRegistry, present, renderHtml, type DraftData, type IssuedState } from "../src/index.ts";
+import { createMemoryBooks, present, renderHtml, type DraftData, type IssuedState } from "../src/index.ts";
 import { bundledPacks } from "../src/packs/index.ts";
 import { sampleInvoice } from "../src/testing/conformance.ts";
 
@@ -7,7 +7,7 @@ import { sampleInvoice } from "../src/testing/conformance.ts";
 const nb = (s: string) => s.replace(/ /g, "\u00a0");
 
 const issuedSample = async (overrides: Partial<DraftData> = {}) => {
-    const books = createMemoryBooks({ registry: createRegistry(bundledPacks), timeZone: "Asia/Kuala_Lumpur" });
+    const books = createMemoryBooks({ packs: bundledPacks, timeZone: "Asia/Kuala_Lumpur" });
     await books.create({ id: "a", ...sampleInvoice(overrides) });
     await books.issue("a");
     await books.settle("a", { id: "p1", kind: "payment", amount: "771.47", date: "2026-10-25" });
@@ -64,7 +64,7 @@ describe("present", () => {
     });
 
     it("shows a credit note as applied, with the number of the invoice it corrects", async () => {
-        const books = createMemoryBooks({ registry: createRegistry(bundledPacks), timeZone: "Asia/Kuala_Lumpur" });
+        const books = createMemoryBooks({ packs: bundledPacks, timeZone: "Asia/Kuala_Lumpur" });
         await books.create({ id: "inv", ...sampleInvoice() });
         await books.issue("inv");
         const { note } = await books.credit("inv", { id: "cn", input: { issueDate: "2026-10-30", lines: [{ id: "1", name: "x", quantity: "1", price: "10.00", taxes: [{ category: "E" }] }] } });

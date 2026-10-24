@@ -6,16 +6,12 @@
  * is rounded is visible at the call site.
  */
 
-export type RoundingMode =
-    | "half-away-from-zero"
-    | "half-even"
-    | "half-toward-zero"
-    | "away-from-zero"
-    | "toward-zero"
-    | "floor"
-    | "ceil";
+export const ROUNDING_MODES = ["half-away-from-zero", "half-even", "half-toward-zero", "away-from-zero", "toward-zero", "floor", "ceil"] as const;
 
-const DECIMAL = /^([+-])?(\d+)(?:\.(\d+))?$/;
+export type RoundingMode = (typeof ROUNDING_MODES)[number];
+
+/** A decimal as a string: "12", "-0.375", "+3". The one grammar for amounts, here and in the schema. */
+export const DECIMAL = /^([+-])?(\d+)(?:\.(\d+))?$/;
 const pow10 = (n: number): bigint => 10n ** BigInt(n);
 
 export class Decimal {

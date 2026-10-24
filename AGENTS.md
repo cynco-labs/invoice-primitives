@@ -16,6 +16,7 @@ the library should use the agent skill in `skills/invoicing/` instead.
 
 ```bash
 pnpm corpus      # once, before the core tests
+pnpm gen         # after changing a shape or a test vector
 pnpm test
 pnpm typecheck
 pnpm build
@@ -30,8 +31,13 @@ pnpm mutate      # after touching calc/, money/ or document/
 - A refusal is an `InvoiceError` with a code from `INVOICE_ERROR_CODES` and a
   path. Add a new code to that list rather than throwing a plain `Error` for
   bad input.
-- Backends hold no business rules. A rule belongs in `decide`, `evolve` or
-  `expand`, where every backend gets it.
+- A backend is a `Store` and holds no business rules. A rule belongs in
+  `createBooks`, `decide`, `evolve` or `expand`, where every backend gets it.
+- Every JSON shape is defined once, in `packages/core/src/schema/shapes.ts`.
+  Infer its type from there; never write a second copy by hand. `pnpm gen`
+  regenerates the JSON Schema, the Convex validators and the test vectors.
+- A country pack is data. Never add a function to `CountryPack`; arithmetic a
+  country needs is a named value in `Policy`, implemented in `compute`.
 - A new behaviour gets a scenario in `packages/core/src/testing/conformance.ts`,
   so that every backend is held to it.
 - Never edit the published output of a policy. The golden tests guard it; a

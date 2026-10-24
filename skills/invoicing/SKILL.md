@@ -32,6 +32,13 @@ pnpm add @invoice-primitives/cloudflare  # on Cloudflare Workers
 
 Derive `tenant` from authentication. Never take it from a request body.
 
+Each takes `packs` for a jurisdiction the bundled packs do not cover:
+`createMemoryBooks({ packs })`, `new Invoicing(components.invoicing, { packs })`,
+`booksFor(env.INVOICING, tenant, { packs })`, with
+`packs: [...bundledPacks, myPack]`. A pack is plain JSON (policies, tax
+categories, named taxes, rules, voiding); copy the shape of `my` from
+`@invoice-primitives/core/packs/my`.
+
 Convex setup: `app.use(invoicing)` in `convex/convex.config.ts`, importing
 `invoicing` from `@invoice-primitives/convex/convex.config`.
 
@@ -90,12 +97,22 @@ if (doc?.status === "issued") {
 
 `present` takes `labels` to translate every printed word.
 
+```ts
+const page = await books.list({ status: "overdue", customer: "cus_42" }); // newest first
+// status: draft | open | overdue | settled | void | discarded (left out unless asked for)
+// kind: invoice | credit-note; asOf: only with status overdue, the date it is judged on (default today, seller's time zone)
+// more: books.list({ ...sameQuery, cursor: page.next }) while page.next is set; pages can be short
+```
+
+Pass `customer` (your id for the buyer) on `create` to list a buyer's documents.
+
 ## Rules
 
 - Amounts and quantities are decimal strings: `"150.00"`, `"10"`. Never pass
   numbers.
-- Do not store "paid" or "overdue" yourself. Call `balance(doc, date)` when you
-  need them.
+- Do not store "paid" or "overdue" yourself, or keep your own index of
+  invoices. Call `balance(doc, date)` for one document and `books.list` for
+  many.
 - An issued invoice never changes. To correct one, call `books.credit`. A draft
   can be discarded with `books.discard`.
 - Payment, credit note and delivery ids are yours. Reuse the same id when you
@@ -105,9 +122,9 @@ if (doc?.status === "issued") {
 
 ## Errors
 
-A refusal throws `InvoiceError` with `code`, `path` and `detail`. On Convex it
-arrives as a `ConvexError` whose `data` holds the same fields; read it with
-`refusalOf(error)`.
+A refusal throws `InvoiceError` with `code`, `path` and `detail`, on every
+backend. On Convex, the client's direct methods (not `books()`) throw a
+`ConvexError` instead; `refusalOf(error)` turns it into the `InvoiceError`.
 
 ```ts
 import { InvoiceError } from "@invoice-primitives/core";

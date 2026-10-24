@@ -8,7 +8,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "corpus": "pnpm --filter @invoice-primitives/core corpus",
-    "mutate": "pnpm --filter @invoice-primitives/core mutate"
+    "mutate": "pnpm --filter @invoice-primitives/core mutate",
+    "gen": "pnpm --filter @invoice-primitives/core gen"
   },
   "packageManager": "pnpm@10.32.1",
   "engines": {
