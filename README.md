@@ -1,3 +1,4 @@
+THIS REPO IS STILL UNDER HEAVY DEVELOPMENT AND IT WILL NOT BE FINISH ANYTIME SOON 🚧🚨
 # Invoice Primitives, from Cynco Labs
 
 Invoice Primitives is an open source invoicing library for TypeScript: exact
